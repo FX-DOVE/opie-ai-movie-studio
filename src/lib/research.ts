@@ -267,7 +267,8 @@ async function llmLoop(s: Session, page: Page) {
     let a: Act = typeof d.action === "string" ? { ...(d as Partial<Act>), type: d.action } as Act : (d.action as Act) || (d.type ? (d as Act) : { type: "" });
     if (!a.type) { const k = ["navigate", "click", "type", "scroll", "read", "transcript", "frames", "note", "done"].find((x) => x in (a as object)); if (k) a = { ...a, type: k, ...(k === "note" ? { text: String((a as Record<string, unknown>).note) } : k === "navigate" ? { url: String((a as Record<string, unknown>).navigate) } : {}) }; }
     if (!a.type) a = d.thought ? { type: "note", text: d.thought } : { type: "scroll", direction: "down" };
-    a.type = a.type.toLowerCase();
+    a.type = a.type.toLowerCase().trim();
+    { const [verb, ...rest] = a.type.split(/[\s_-]+/); if (rest.length && ["navigate", "click", "type", "scroll", "read", "transcript", "frames", "note", "done"].includes(verb)) { a.type = verb; if (verb === "scroll" && !a.direction) a.direction = rest[0] === "up" ? "up" : "down"; } }
     if (a.type === "note" && !a.text) a.text = (a as Record<string, unknown>).note as string || d.thought || "";
     if (a.type === "done" && !a.notes) a.notes = (a as Record<string, unknown>).text as string || "";
     const sel = (id?: number) => page.locator(`[data-opie="${id}"]`).first();
