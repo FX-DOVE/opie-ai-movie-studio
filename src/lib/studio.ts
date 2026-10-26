@@ -128,7 +128,11 @@ export async function writeScript(p: Project, instruction: string) {
       return { title: parseScenes(s).title, script: s };
     },
   );
-  await db.update(p.id, (x) => { x.script = data.script; if (data.title && (x.title === "Untitled project" || !x.title)) x.title = data.title; });
+  const sv = data as unknown as Record<string, unknown>;
+  const script = [sv.script, sv.screenplay, sv.text, sv.content].find((v) => typeof v === "string" && v.trim().length > 40) as string | undefined;
+  if (!script) throw new Error("The AI returned no script text — try again");
+  data.script = script;
+  await db.update(p.id, (x) => { x.script = script; if (data.title && (x.title === "Untitled project" || !x.title)) x.title = data.title; });
   return { source };
 }
 

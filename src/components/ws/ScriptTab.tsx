@@ -31,7 +31,7 @@ export function ScriptTab({ p, act, busy, toast, setP, openBrainstorm, next }: T
     }, 900);
     return () => clearTimeout(t);
   }, [text, dirty, p.id, setP]);
-  const lines = useMemo(() => classify(text), [text]);
+  const lines = useMemo(() => classify(text || ""), [text]);
   const chatEnd = useRef<HTMLDivElement>(null);
   useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [p.brainstorm.length]);
 
