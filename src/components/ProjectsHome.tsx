@@ -22,7 +22,7 @@ export function ProjectsHome() {
 
   return (
     <div className="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-10 py-6 sm:py-8">
-      <div className="mb-6 flex items-center justify-between md:hidden"><Logo /><StatusPill /></div>
+      <div className="mb-6 flex items-center justify-between gap-2 pr-12 md:hidden"><Logo /><StatusPill /></div>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="hidden items-center gap-3 md:flex"><StatusPill /></div>

@@ -93,7 +93,7 @@ export function Brainstorm({ p, setP, act, toast, open, onScript }: { p: Project
 
   return (
     <aside className={`${open ? "flex" : "hidden"} xl:flex min-h-[520px] w-full flex-col border-t border-white/[0.06] bg-ink-900/60 xl:sticky xl:top-0 xl:h-dvh xl:w-[420px] xl:border-l xl:border-t-0`}>
-      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-white/[0.06] px-4">
+      <div className="flex h-14 shrink-0 items-center gap-2 border-b border-white/[0.06] px-4 xl:pr-16">
         <MessageSquareText className="h-4 w-4 text-brand-400" /><span className="text-sm font-semibold">Brainstorm</span>
         <span className="badge bg-white/[0.06] text-ink-300 capitalize">{p.mode === "ad" ? "Product ad" : p.mode}</span>
         <a href={`/research?project=${p.id}`} className="ml-auto flex items-center gap-1 text-[11px] text-ink-400 hover:text-white" title="Send the research agent and attach its notes here"><NotebookPen className="h-3.5 w-3.5" />Research</a>

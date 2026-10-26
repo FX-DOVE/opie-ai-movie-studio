@@ -1,4 +1,5 @@
 "use client";
+import { showDesktop } from "./DesktopWidget";
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Bot, Check, ChevronDown, Loader2, Send, Sparkles, Square, Wrench, X } from "lucide-react";
@@ -51,7 +52,7 @@ export function AgentChat({ projectId, onSession, className = "", starters }: { 
           else if (e.type === "tool_args") push((x) => x.map((it) => it.k === "tool" && it.id === e.id ? { ...it, args: e.args } : it));
           else if (e.type === "plan") push((x) => [...x, { k: "info", text: `Plan: ${e.steps.map((t: string) => LABEL[t] || t).join(" → ")}` }]);
           else if (e.type === "tool_end") push((x) => x.map((it) => it.k === "tool" && it.id === e.id ? { ...it, ok: e.ok, summary: e.summary } : it));
-          else if (e.type === "session") onSession?.(e.id);
+          else if (e.type === "session") { showDesktop(e.id); onSession?.(e.id); }
           else if (e.type === "project") push((x) => [...x, { k: "info", text: `Created project “${e.title}” — /studio/${e.id}` }]);
           else if (e.type === "error") push((x) => [...x, { k: "info", text: "⚠ " + e.error }]);
           else if (e.type === "done" && e.projectId && !interrupting) router.refresh();

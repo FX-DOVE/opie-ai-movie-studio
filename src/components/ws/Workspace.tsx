@@ -101,7 +101,7 @@ export function Workspace({ id }: { id: string }) {
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Top bar for < lg */}
         <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-ink-950/90 backdrop-blur lg:hidden">
-          <div className="flex h-14 items-center gap-2 px-3 sm:px-5">
+          <div className="flex h-14 items-center gap-2 pl-3 pr-14 sm:pl-5 sm:pr-16">
             <Link href="/studio" className="btn-ghost h-9 w-9 px-0" aria-label="Back"><ArrowLeft className="h-4 w-4" /></Link>
             <span className="min-w-0 flex-1 truncate font-semibold">{p.title}</span>
             <StatusPill />

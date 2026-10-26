@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, Hand, Keyboard, RotateCw, Bot, Captions, Eye, Fi
 import { Spinner, useToast } from "./ui";
 import { StatusPill } from "./AppShell";
 import { AgentChat } from "./AgentChat";
+import { showDesktop } from "./DesktopWidget";
 
 type Step = { n: number; at: string; action: string; thought?: string; kind?: string };
 type Video = { title: string; channel: string; views?: string; url: string; thumb?: string; published?: string };
@@ -42,6 +43,7 @@ export function Research() {
   useEffect(() => { logEnd.current?.scrollIntoView({ block: "nearest" }); }, [s?.steps.length]);
 
   const poll = (id: string) => {
+    showDesktop(id);
     let last = 0; let acc: Step[] = [];
     const tick = async () => {
       const r = await fetch(`/api/research/${id}?since=${last}`); if (!r.ok) return;
@@ -96,7 +98,7 @@ export function Research() {
     <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
       <div className="flex flex-wrap items-center gap-2"><StatusPill />{s && <span className="badge bg-sky-500/10 text-sky-300"><Bot className="h-3 w-3" />{s.provider}</span>}</div>
       <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Virtual desktop</h1>
-      <p className="mt-1 max-w-3xl text-sm text-ink-400">A research agent with its own Chromium browser. Each step it looks at a screenshot and the page’s accessibility tree, then decides to navigate, click, type, scroll, read transcripts or sample video frames — and writes notes straight into your project’s brainstorm.</p>
+      <p className="mt-1 max-w-3xl text-sm text-ink-400">Its live screen opens in the <b className="text-ink-200">computer</b> window (top-right). A research agent with its own Chromium browser. Each step it looks at a screenshot and the page’s accessibility tree, then decides to navigate, click, type, scroll, read transcripts or sample video frames — and writes notes straight into your project’s brainstorm.</p>
 
       <div className="mt-6 flex gap-1 overflow-x-auto pb-1">
         {TASKS.map((t) => <button key={t.id} disabled={running} onClick={() => { setTask(t.id); setGoal(""); }} className={`chip shrink-0 ${task === t.id ? "chip-on" : ""}`}><t.icon className="h-3.5 w-3.5" />{t.label}</button>)}
@@ -120,43 +122,9 @@ export function Research() {
       <div className="mt-3 flex flex-wrap items-center gap-1.5"><span className="text-[11px] text-ink-500">Open browser:</span>{[["Google Drive", "https://drive.google.com"], ["YouTube", "https://www.youtube.com"], ["Gmail", "https://mail.google.com"], ["Google", "https://www.google.com"]].map(([l, u]) => <button key={l} className="chip" onClick={() => openBrowser(u)}><Globe2 className="h-3.5 w-3.5" />{l}</button>)}<span className="text-[11px] text-ink-500">· logins persist in this workspace’s browser profile</span></div>
       {!running && T.presets.length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{T.presets.map((p) => <button key={p} className="chip" onClick={() => start(p)}>{p}</button>)}</div>}
 
-      <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <div className="xl:col-span-2 grid gap-5 lg:grid-cols-[minmax(0,1fr)_400px]">
-        <div className="panel overflow-hidden">
-          <div className="flex h-11 items-center gap-1.5 border-b border-white/[0.06] bg-ink-900 px-2">
-            {controlling ? <>
-              <button title="Back" className="grid h-8 w-8 place-items-center rounded-md hover:bg-white/10" onClick={() => send({ t: "back" })}><ArrowLeft className="h-4 w-4" /></button>
-              <button title="Forward" className="grid h-8 w-8 place-items-center rounded-md hover:bg-white/10" onClick={() => send({ t: "forward" })}><ArrowRight className="h-4 w-4" /></button>
-              <button title="Reload" className="grid h-8 w-8 place-items-center rounded-md hover:bg-white/10" onClick={() => send({ t: "reload" })}><RotateCw className="h-4 w-4" /></button>
-              <input id="addr" className="h-8 min-w-0 flex-1 rounded-md bg-ink-800 px-3 text-xs text-white outline-none focus:ring-1 focus:ring-brand-400" value={addr} onChange={(e) => setAddr(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { send({ t: "navigate", url: addr }); (e.target as HTMLInputElement).blur(); } }} placeholder="Search or type a URL" />
-            </> : <>
-              <span className="flex gap-1.5 pl-1"><i className="h-2.5 w-2.5 rounded-full bg-red-400/70" /><i className="h-2.5 w-2.5 rounded-full bg-amber-400/70" /><i className="h-2.5 w-2.5 rounded-full bg-emerald-400/70" /></span>
-              <span className="ml-2 min-w-0 flex-1 truncate rounded-md bg-ink-800 px-3 py-1 text-xs text-ink-400">{s?.pageUrl || "about:blank"}</span>
-            </>}
-            {s && pagesLive() && (controlling
-              ? (s.mode === "manual" ? <button className="btn-outline h-8 px-2 text-xs text-red-300" onClick={() => { ctl("stop"); setCtrlOn(false); }}><Square className="h-3.5 w-3.5" />Close</button> : <button className="btn-brand h-8 px-2 text-xs" onClick={handback}><Bot className="h-3.5 w-3.5" />Hand back to agent</button>)
-              : <button className={`h-8 px-2 text-xs ${s.needsUser ? "btn-brand animate-pulse" : "btn-outline"}`} onClick={takeover}><Hand className="h-3.5 w-3.5" />Take control</button>)}
-            {s && !controlling && <span className={`badge ${s.status === "running" ? "bg-emerald-500/15 text-emerald-300" : s.status === "paused" ? "bg-amber-500/15 text-amber-300" : s.status === "error" ? "bg-red-500/15 text-red-300" : "bg-white/10 text-ink-300"}`}>{s.status === "running" && <i className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300" />}{s.status === "running" ? "LIVE" : s.status}</span>}
-          </div>
-          {s?.needsUser === "signin" && !controlling && <div className="border-b border-amber-400/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">This page needs a sign-in. The agent never types passwords — press <b>Take control</b>, sign in yourself, then hand back. Your login stays in this browser profile.</div>}
-          <div ref={scr} tabIndex={controlling ? 0 : -1} onKeyDown={controlling ? onKey : undefined} onPaste={controlling ? (e) => { e.preventDefault(); send({ t: "type", text: e.clipboardData.getData("text") }); } : undefined}
-            onClick={controlling ? onScreenClick : undefined} onWheel={controlling ? (e) => send({ t: "scroll", dy: Math.max(-800, Math.min(800, e.deltaY * 2)) }) : undefined}
-            className={`relative aspect-[16/10] bg-ink-950 outline-none ${controlling ? "cursor-pointer ring-2 ring-inset ring-brand-400/60" : ""}`}>
-            {(controlling ? live.screen || s?.screen : s?.screen) ? <img src={controlling ? live.screen || s?.screen : s?.screen} alt="Agent screen" draggable={false} className="absolute inset-0 h-full w-full select-none object-contain" /> : (
-              <div className="absolute inset-0 grid place-items-center text-center text-ink-600"><div><MonitorPlay className="mx-auto h-10 w-10" />{running ? <p className="mt-2 flex items-center gap-2 text-sm"><Spinner />Booting browser…</p> : <p className="mt-2 text-sm">The agent’s screen streams here live</p>}</div></div>
-            )}
-            {s && !controlling && <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-4 pb-3 pt-8 text-xs text-white/90"><span className="text-ink-300">Step {acts}/{s.maxSteps} · </span>{s.steps[s.steps.length - 1]?.action}</div>}
-            {controlling && <span className="pointer-events-none absolute left-2 top-2 badge bg-brand-500/80 text-white"><Hand className="h-3 w-3" />You’re in control</span>}
-          </div>
-          {controlling && <div className="flex flex-wrap items-center gap-1.5 border-t border-white/[0.06] p-2">
-            <Keyboard className="h-4 w-4 text-ink-400" />
-            <input className="input h-9 min-w-0 flex-1 basis-full sm:basis-auto" placeholder="Type into the page (mobile keyboard)…" value={kb} onChange={(e) => setKb(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (kb) send({ t: "type", text: kb }).then(() => send({ t: "key", key: "Enter" })); else send({ t: "key", key: "Enter" }); setKb(""); } }} />
-            <button className="btn-outline h-9 px-2 text-xs" onClick={() => { if (kb) send({ t: "type", text: kb }); setKb(""); }}>Send text</button>
-            {["Enter", "Tab", "Backspace"].map((k) => <button key={k} className="btn-outline h-9 px-2 text-xs" onClick={() => send({ t: "key", key: k })}>{k === "Backspace" ? "⌫" : k === "Enter" ? "⏎ Enter" : "⇥ Tab"}</button>)}
-          </div>}
-          {s && s.frames.length > 0 && <div className="grid grid-cols-4 gap-1 border-t border-white/[0.06] p-2">{s.frames.map((f, i) => <img key={i} src={f} alt={`frame ${i + 1}`} className="aspect-video w-full rounded object-cover" />)}</div>}
-        </div>
-        <div className="panel flex h-[560px] flex-col overflow-hidden lg:h-auto lg:max-h-[720px] lg:min-h-[520px]">
+      <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px] xl:grid-cols-[minmax(0,1fr)_420px]">
+        <div className="contents">
+        <div className="panel flex h-[560px] flex-col overflow-hidden lg:h-[640px]">
           <div className="flex items-center gap-2 border-b border-white/[0.06] px-3 py-2.5"><Bot className="h-4 w-4 text-brand-400" /><span className="text-sm font-semibold">Talk to the agent</span><span className="text-[10px] text-ink-500">it drives the desktop for you</span></div>
           <AgentChat projectId={target || undefined} className="flex-1" onSession={(id) => { if (timer.current) clearTimeout(timer.current); setShowT(false); poll(id); }} starters={["What’s trending in Nollywood family drama right now?", "Watch https://www.youtube.com/watch?v=jNQXAC9IVRw and tell me what happens", "Compare thumbnails of top anime short films"]} />
         </div>
