@@ -4,6 +4,7 @@ import { chatP, chatStream, llmLive, parseJson, type Msg } from "./providers/met
 import { brainstormStream } from "./brainstorm";
 import { getSession, startResearch, type Task } from "./research";
 import type { Idea, Project } from "./types";
+import { keywordReport, rewriteAsScript, scriptReport, stamp } from "./youtube";
 import { FORMATS } from "./types";
 
 /** Opie assistant: a conversational agent with tool calling over the studio's own actions. */
@@ -83,6 +84,11 @@ export const TOOLS: Record<string, Tool> = {
     }
     const x = getSession(s.id)!;
     return `status ${x.status}${x.error ? " " + x.error : ""}. Videos seen: ${x.trending.slice(0, 8).map((v: { title: string; channel: string; views?: string }) => `${v.title} (${v.channel}, ${v.views || "?"})`).join("; ")}\nNOTES:\n${x.notes.slice(0, 2500)}`; } },
+  extract_keywords: { req: ["input"], desc: '{"input": YouTube link or seed keyword} — tags, hashtags, autocomplete suggestions, ranked into primary/long-tail/trending keywords', run: async (_c, a) => { const r = await keywordReport(String(a.input)); return `Video: ${r.raw.video?.title || "-"} | tags: ${r.raw.tags.slice(0, 15).join(", ") || "none"}\nPRIMARY: ${r.report.primary.join(", ")}\nLONG-TAIL: ${r.report.longTail.join(", ")}\nTRENDING: ${r.report.trending.join(", ")}\nHASHTAGS: ${r.report.hashtags.join(" ")}\n${r.report.summary || ""}`; } },
+  get_youtube_script: { req: ["url"], desc: '{"url", "use_as_script": false} — ALREADY returns the full timestamped transcript (no research needed after it) + hook/beats/CTA analysis; use_as_script=true writes an ORIGINAL rewritten script into the open project', run: async (c, a) => {
+    const r = await scriptReport(String(a.url)); if (!r.segs.length) return `No transcript available for "${r.video.title}" (${r.via}).`;
+    let extra = ""; if (a.use_as_script && c.projectId) { const w = await rewriteAsScript(r); await db.update(c.projectId, (x) => { x.script = w.script; }); extra = `\nWrote an original script into the project (${w.script.split(/\s+/).length} words).`; }
+    return `"${r.video.title}" — ${r.video.channel} · ${r.segs.length} caption lines via ${r.via}\nHOOK: ${r.analysis?.hook || "-"}\nBEATS: ${(r.analysis?.beats || []).map((b) => `${b.t || ""} ${b.beat}`).join(" | ")}\nCTA: ${r.analysis?.cta || "-"}\nTRANSCRIPT: ${r.segs.slice(0, 60).map((s) => `[${stamp(s.t)}] ${s.text}`).join(" ").slice(0, 1800)}${extra}`; } },
   project_status: { desc: "{} — current project state", run: async (c) => state(proj(c)) },
 };
 

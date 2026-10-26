@@ -133,3 +133,16 @@ A floating ✨ button appears on every page, and the Virtual Desktop has a chat 
 - **Weaker models:** when a model under-plans, a sequential production pipeline fills in the missing stages and never skips past a failed stage.
 - **Model:** Meta Muse Wonder (`META_AGENT_MODEL`) is used when a Meta key is set. Otherwise the fallback LLM is used.
 - **API:** `POST /api/agent {convId?, message, projectId?}` streams NDJSON events: `delta`, `plan`, `tool_start`, `tool_args`, `tool_end`, `status`, `session`, `project`, `turn_end`, `done`.
+
+## Take control & persistent browser logins
+- In the Research desktop, **Take control** turns the live view interactive: click, scroll, type, keys, paste, and an address bar with back/forward/reload. On mobile, use the "Type into the page" box. **Hand back to agent** sends what you did to the agent as context.
+- Browser state lives in a persistent Chromium profile at `data/browser-profiles/<BROWSER_PROFILE|default>`. This folder is git-ignored. Quick links open Drive, YouTube and Gmail.
+- When the agent reaches a sign-in page or a password field, it pauses and asks you to take control. It never types credentials, and typed text is never logged.
+- Google may refuse sign-in in automated or headless browsers. To work around this, run the server under Xvfb with `BROWSER_HEADFUL=1` and `CHROMIUM_HEADFUL_PATH=/path/to/chrome`. The browser uses a realistic user agent and drops `--enable-automation`.
+
+## YouTube keywords & scripts (chat only)
+There is no UI for this. Ask the assistant or the desktop agent in chat, for example "extract keywords for <link or topic>" or "get the script of <link>".
+- `extract_keywords` collects video tags, title and description keywords, hashtags and YouTube autocomplete suggestions. The LLM then ranks and clusters them into primary, long-tail, trending and hashtags.
+- `get_youtube_script` returns the full timestamped transcript plus a hook/beats/CTA analysis.
+  - Transcript sources, in order: caption tracks, the embedded player's own timedtext call (this works when watch pages are bot-gated), then rule-based analysis if the LLM fails.
+  - With `use_as_script: true` it writes an ORIGINAL rewritten script into the open project. It never copies the reference.

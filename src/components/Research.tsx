@@ -150,7 +150,7 @@ export function Research() {
           </div>
           {controlling && <div className="flex flex-wrap items-center gap-1.5 border-t border-white/[0.06] p-2">
             <Keyboard className="h-4 w-4 text-ink-400" />
-            <input className="input h-9 min-w-0 flex-1" placeholder="Type into the page (mobile keyboard)…" value={kb} onChange={(e) => setKb(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (kb) send({ t: "type", text: kb }).then(() => send({ t: "key", key: "Enter" })); else send({ t: "key", key: "Enter" }); setKb(""); } }} />
+            <input className="input h-9 min-w-0 flex-1 basis-full sm:basis-auto" placeholder="Type into the page (mobile keyboard)…" value={kb} onChange={(e) => setKb(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (kb) send({ t: "type", text: kb }).then(() => send({ t: "key", key: "Enter" })); else send({ t: "key", key: "Enter" }); setKb(""); } }} />
             <button className="btn-outline h-9 px-2 text-xs" onClick={() => { if (kb) send({ t: "type", text: kb }); setKb(""); }}>Send text</button>
             {["Enter", "Tab", "Backspace"].map((k) => <button key={k} className="btn-outline h-9 px-2 text-xs" onClick={() => send({ t: "key", key: k })}>{k === "Backspace" ? "⌫" : k === "Enter" ? "⏎ Enter" : "⇥ Tab"}</button>)}
           </div>}
