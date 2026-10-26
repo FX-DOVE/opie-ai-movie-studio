@@ -1,4 +1,5 @@
 "use client";
+import { friendly } from "@/lib/net";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -80,14 +81,17 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [idea, setIdea] = useState("");
   const [script, setScript] = useState("");
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
 
   async function create() {
-    setBusy(true);
-    const r = await fetch("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title || undefined, mode, format, aspect, style, customStyle, outputType, idea, script: start === "script" ? script : "" }) });
-    const p = await r.json();
-    if (start === "idea" && idea.trim()) {
-      await fetch(`/api/projects/${p.id}/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "writeScript", prompt: idea }) });
-    }
+    setBusy(true); setErr("");
+    let p: { id: string; error?: string };
+    try {
+      const r = await fetch("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title || undefined, mode, format, aspect, style, customStyle, outputType, idea, script: start === "script" ? script : "" }) });
+      p = await r.json(); if (!r.ok) throw new Error(p.error || "Couldn’t create the project");
+    } catch (e) { setErr(friendly(e)); setBusy(false); return; }
+    // the script is written in the background (detached job) — open the project right away; the Script tab shows progress
+    if (start === "idea" && idea.trim()) await fetch(`/api/projects/${p.id}/action`, { method: "POST", headers: { "Content-Type": "application/json", "x-job": "1" }, body: JSON.stringify({ action: "writeScript", prompt: idea }) }).catch(() => {});
     router.push(`/studio/${p.id}${start === "brainstorm" ? "?brainstorm=1" : ""}`);
   }
 
@@ -140,7 +144,8 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
         </div>
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button className="btn-ghost h-11" onClick={onClose}>Cancel</button>
-          <button className="btn-brand h-11 px-6" disabled={busy || (start === "idea" && !idea.trim()) || (start === "script" && script.trim().length < 20)} onClick={create}>{busy ? <><Spinner /> Writing…</> : "Create project"}</button>
+          {err && <p role="alert" className="mr-auto text-sm text-red-300">{err}</p>}
+          <button className="btn-brand h-11 px-6" disabled={busy || (start === "idea" && !idea.trim()) || (start === "script" && script.trim().length < 20)} onClick={create}>{busy ? <><Spinner /> Creating…</> : "Create project"}</button>
         </div>
       </div>
     </Modal>

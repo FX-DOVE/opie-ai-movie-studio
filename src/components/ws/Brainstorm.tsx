@@ -1,4 +1,5 @@
 "use client";
+import { friendly, ndjson } from "@/lib/net";
 import { useEffect, useRef, useState } from "react";
 import { Check, FileText, Lightbulb, MessageSquareText, NotebookPen, RotateCcw, Send, Sparkles, Square, X } from "lucide-react";
 import type { ChatMsg, Idea, Project } from "@/lib/types";
@@ -60,23 +61,16 @@ export function Brainstorm({ p, setP, act, toast, open, onScript }: { p: Project
     setMsg(""); setLive({ text: "" });
     const ac = new AbortController(); abort.current = ac;
     try {
-      const r = await fetch(`/api/projects/${p.id}/brainstorm`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text }), signal: ac.signal });
-      if (!r.ok || !r.body) throw new Error((await r.json().catch(() => ({}))).error || "Brainstorm failed");
-      const rd = r.body.getReader(); const dec = new TextDecoder(); let buf = ""; let acc = ""; let prov: string | undefined;
-      for (;;) {
-        const { value, done } = await rd.read(); if (done) break;
-        buf += dec.decode(value, { stream: true }); let i;
-        while ((i = buf.indexOf("\n")) >= 0) {
-          const line = buf.slice(0, i); buf = buf.slice(i + 1); if (!line.trim()) continue;
-          const ev = JSON.parse(line);
-          if (ev.type === "provider") prov = ev.provider + (ev.model ? ` · ${ev.model}` : "");
-          if (ev.type === "delta") acc += ev.text;
-          if (ev.type === "error") throw new Error(ev.error);
-          setLive({ text: acc.replace(/```ideas[\s\S]*$/, "\n_…shaping idea cards…_"), provider: prov });
-        }
-      }
+      let acc = ""; let prov: string | undefined;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await ndjson(`/api/projects/${p.id}/brainstorm`, { message: text }, (ev: any) => {
+        if (ev.type === "provider") prov = ev.provider + (ev.model ? ` · ${ev.model}` : "");
+        if (ev.type === "delta") acc += ev.text;
+        if (ev.type === "error") throw new Error(ev.error);
+        setLive({ text: acc.replace(/```ideas[\s\S]*$/, "\n_…shaping idea cards…_"), provider: prov });
+      }, ac.signal);
       await reload();
-    } catch (e) { if ((e as Error).name !== "AbortError") toast((e as Error).message, true); }
+    } catch (e) { if ((e as Error).name !== "AbortError") toast(friendly(e), true); setMsg(text); }
     setLive(null); abort.current = null;
   };
   const ideaText = (i: Idea) => `${i.title}. ${i.logline}${i.hook ? ` Hook: ${i.hook}.` : ""}${i.beats?.length ? ` Beats: ${i.beats.join(" → ")}.` : ""}${i.characters?.length ? ` Characters: ${i.characters.map((c) => `${c.name} (${c.description})`).join("; ")}.` : ""}`;

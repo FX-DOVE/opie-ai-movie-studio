@@ -47,6 +47,7 @@ export interface ResearchNote { id: string; goal: string; notes: string; at: str
 export interface RenderJob { status: "idle" | "queued" | "running" | "done" | "error"; progress: number; message: string; url?: string; updatedAt: string; review?: string }
 
 export interface Project {
+  writing?: number; // set while a script is being written in the background
   id: string;
   title: string;
   mode: Mode;

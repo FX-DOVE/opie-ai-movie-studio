@@ -48,7 +48,7 @@ export function ScriptTab({ p, act, busy, toast, setP, openBrainstorm, next }: T
     const j = await r.json(); if (j.project) { setP(j.project); toast("Script imported"); } else toast(j.error, true);
   };
   const send = async () => { if (!msg.trim()) return; const m = msg; setMsg(""); await act("brainstorm", { message: m }); };
-  const writing = busy.has("writeScript");
+  const writing = busy.has("writeScript") || !!(p.writing && Date.now() - p.writing < 20 * 60_000);
 
   return (
     <>
@@ -100,7 +100,7 @@ export function ScriptTab({ p, act, busy, toast, setP, openBrainstorm, next }: T
         <Brainstorm p={p} setP={setP} act={act} toast={toast} open={chatOpen} onScript={() => { setView("read"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
       </div>
       <PromptBar busy={writing} placeholder={p.script ? "Tell Muse how to revise the script… (e.g. add a twist in scene 2, make Ada angrier)" : "Describe your idea and Muse will write the screenplay…"}
-        hint={writing ? "Muse is writing…" : "Enter to send · Shift+Enter for a new line"}
+        hint={writing ? "Writing your script in the background — you can leave this page, it keeps going…" : "Enter to send · Shift+Enter for a new line"}
         onSubmit={async (v) => { const r = await act("writeScript", { prompt: v }); if (r?.ok) { setView("read"); toast((r.result as { source: string })?.source === "mock" ? "Script drafted (demo mode)" : `Script written by ${(r.result as { source: string }).source}`); } }} />
     </>
   );

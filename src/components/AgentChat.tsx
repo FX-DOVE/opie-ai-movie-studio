@@ -1,5 +1,6 @@
 "use client";
 import { showDesktop } from "./DesktopWidget";
+import { friendly, ndjson } from "@/lib/net";
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Bot, Check, ChevronDown, Loader2, Send, Sparkles, Square, Wrench, X } from "lucide-react";
@@ -33,19 +34,13 @@ export function AgentChat({ projectId, onSession, className = "", starters }: { 
     const interrupting = busy;
     if (!interrupting) setBusy(true);
     try {
-      const r = await fetch("/api/agent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ convId: conv.current, message: msg, projectId }) });
-      if (!r.body) throw new Error("No response");
-      const rd = r.body.getReader(); const dec = new TextDecoder(); let buf = "";
       let open = false;
       const push = (f: (x: Item[]) => Item[]) => setItems(f);
-      for (;;) {
-        const { value, done } = await rd.read(); if (done) break;
-        buf += dec.decode(value, { stream: true }); const lines = buf.split("\n"); buf = lines.pop() || "";
-        for (const l of lines) {
-          if (!l.trim()) continue; const e = JSON.parse(l);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await ndjson("/api/agent", { convId: conv.current, message: msg, projectId }, (e: any) => {
           if (e.type === "conv") { conv.current = e.id; sessionStorage.setItem("opie-conv", e.id); }
           else if (e.type === "thinking") setThinking(true);
-          else if (e.type === "delta") { setThinking(false); if (!e.text) continue; push((x) => { const last = x[x.length - 1]; if (open && last?.k === "ai") return [...x.slice(0, -1), { ...last, text: last.text + e.text }]; open = true; return [...x, { k: "ai", text: e.text.replace(/^\s+/, ""), live: true }]; }); }
+          else if (e.type === "delta") { setThinking(false); if (!e.text) return; push((x) => { const last = x[x.length - 1]; if (open && last?.k === "ai") return [...x.slice(0, -1), { ...last, text: last.text + e.text }]; open = true; return [...x, { k: "ai", text: e.text.replace(/^\s+/, ""), live: true }]; }); }
           else if (e.type === "turn_end") { open = false; setThinking(false); push((x) => x.map((it, i) => i === x.length - 1 && it.k === "ai" ? { ...it, live: false, provider: e.provider } : it).filter((it) => !(it.k === "ai" && !it.text.trim()))); }
           else if (e.type === "tool_start") { open = false; push((x) => [...x, { k: "tool", id: e.id, name: e.name, args: e.args }]); }
           else if (e.type === "status") push((x) => { const i = x.map((it) => it.k).lastIndexOf("tool"); if (i < 0 || (x[i] as { ok?: boolean }).ok !== undefined) return [...x, { k: "info", text: e.text }]; const t = x[i] as Extract<Item, { k: "tool" }>; return [...x.slice(0, i), { ...t, status: [...(t.status || []), e.text].slice(-6) }, ...x.slice(i + 1)]; });
@@ -56,9 +51,8 @@ export function AgentChat({ projectId, onSession, className = "", starters }: { 
           else if (e.type === "project") push((x) => [...x, { k: "info", text: `Created project “${e.title}” — /studio/${e.id}` }]);
           else if (e.type === "error") push((x) => [...x, { k: "info", text: "⚠ " + e.error }]);
           else if (e.type === "done" && e.projectId && !interrupting) router.refresh();
-        }
-      }
-    } catch (err) { setItems((x) => [...x, { k: "info", text: "⚠ " + (err as Error).message }]); }
+      });
+    } catch (err) { setItems((x) => [...x, { k: "info", text: "⚠ " + friendly(err), retry: msg }]); }
     finally { if (!interrupting) { setBusy(false); setThinking(false); } }
   };
 

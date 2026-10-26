@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { nanoid } from "nanoid";
 import { db } from "@/lib/db";
+import { startJob } from "@/lib/jobs";
 import * as S from "@/lib/studio";
 import * as R from "@/lib/render";
 
@@ -8,7 +9,11 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function POST(req: Request, { params }: Ctx) {
+export async function POST(req: Request, ctx: Ctx) {
+  if (req.headers.get("x-job")) { const text = await req.text(); const id = startJob(() => handle(new Request(req.url, { method: "POST", headers: { "Content-Type": "application/json" }, body: text }), ctx)); return NextResponse.json({ job: id }, { status: 202 }); }
+  return handle(req, ctx);
+}
+async function handle(req: Request, { params }: Ctx) {
   const id = (await params).id;
   const p = db.getProject(id);
   if (!p) return NextResponse.json({ error: "not found" }, { status: 404 });
@@ -19,7 +24,7 @@ export async function POST(req: Request, { params }: Ctx) {
       case "useIdea": await db.update(id, (x) => { const i = b.idea || {}; x.idea = [i.title && `${i.title}: `, i.logline, i.hook && `Hook: ${i.hook}`, i.beats?.length && `Beats:\n- ${i.beats.join("\n- ")}`, i.characters?.length && `Characters:\n- ${i.characters.map((c: { name: string; description: string }) => `${c.name} — ${c.description}`).join("\n- ")}`].filter(Boolean).join("\n"); if (i.title && (!x.title || x.title === "Untitled project")) x.title = i.title; }); break;
       case "clearBrainstorm": await db.update(id, (x) => { x.brainstorm = []; }); break;
       case "deleteResearch": await db.update(id, (x) => { x.research = (x.research || []).filter((r) => r.id !== b.researchId); }); break;
-      case "writeScript": result = await S.writeScript(p, String(b.prompt || "")); break;
+      case "writeScript": await db.update(id, (x) => { x.writing = Date.now(); }); try { result = await S.writeScript(p, String(b.prompt || "")); } finally { await db.update(id, (x) => { x.writing = undefined; }); } break;
       case "extractAssets": result = await S.extractAssets(p); break;
       case "addAsset": await db.update(id, (x) => { x.assets.push({ id: nanoid(8), kind: b.kind, name: b.name || "New " + b.kind, description: "", details: "", images: [], voice: b.kind === "character" ? "en-US-AriaNeural" : undefined }); x.bible = S.buildBible(x); }); break;
       case "updateAsset": await db.update(id, (x) => { const a = x.assets.find((y) => y.id === b.assetId); if (a) { for (const k of ["name", "description", "details", "voice", "activeImage"]) if (k in b.patch) (a as unknown as Record<string, unknown>)[k] = b.patch[k]; } x.bible = S.buildBible(x); }); break;

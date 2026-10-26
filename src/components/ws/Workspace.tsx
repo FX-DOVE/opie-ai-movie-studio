@@ -1,4 +1,5 @@
 "use client";
+import { friendly, jobPost } from "@/lib/net";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -42,7 +43,7 @@ export function Workspace({ id }: { id: string }) {
 
   // poll while rendering
   useEffect(() => {
-    if (!p || !["queued", "running"].includes(p.render.status)) return;
+    if (!p || (!["queued", "running"].includes(p.render.status) && !(p.writing && Date.now() - p.writing < 20 * 60_000))) return;
     const t = setInterval(load, 1500);
     return () => clearInterval(t);
   }, [p, load]);
@@ -51,12 +52,13 @@ export function Workspace({ id }: { id: string }) {
     const key = opts.busyKey || action;
     setBusy((b) => new Set(b).add(key));
     try {
-      const r = await fetch(`/api/projects/${id}/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...payload }) });
-      const j = await r.json();
+      const r = await jobPost<Record<string, unknown> & { project?: Project; error?: string }>(`/api/projects/${id}/action`, { action, ...payload });
+      const j = r.data;
       if (j.project) setP(j.project);
-      if (!r.ok) toast(j.error || "Something went wrong", true);
+      if (!r.ok) toast(j.error || "Something went wrong — please retry.", true);
+      else if (!j.project) load();
       return j;
-    } catch (e) { toast((e as Error).message, true); return null; }
+    } catch (e) { toast(friendly(e), true); return null; }
     finally { setBusy((b) => { const n = new Set(b); n.delete(key); return n; }); }
   }, [id, toast]);
 
