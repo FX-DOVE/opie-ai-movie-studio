@@ -32,7 +32,7 @@ export function ScriptTab({ p, act, busy, toast, setP, openBrainstorm, next }: T
   }, [text, dirty, p.id, setP]);
   const lines = useMemo(() => classify(text), [text]);
   const chatEnd = useRef<HTMLDivElement>(null);
-  useEffect(() => chatEnd.current?.scrollIntoView({ behavior: "smooth" }), [p.brainstorm.length]);
+  useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [p.brainstorm.length]);
 
   const insert = (s: string) => {
     const el = ta.current; setView("write");
