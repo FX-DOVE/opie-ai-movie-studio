@@ -146,3 +146,15 @@ There is no UI for this. Ask the assistant or the desktop agent in chat, for exa
 - `get_youtube_script` returns the full timestamped transcript plus a hook/beats/CTA analysis.
   - Transcript sources, in order: caption tracks, the embedded player's own timedtext call (this works when watch pages are bot-gated), then rule-based analysis if the LLM fails.
   - With `use_as_script: true` it writes an ORIGINAL rewritten script into the open project. It never copies the reference.
+
+## Opie's computer (floating desktop widget)
+- **Opening it:** a small computer button in the top-right of every app page opens the agent's live desktop in a floating window you can drag and resize.
+  - A green dot means the agent is running; amber means it is paused.
+- **Window controls:**
+  - minimise, fullscreen, close;
+  - back/forward/reload and the address bar;
+  - Take control / Hand back to agent;
+  - Stop.
+- **Fullscreen (desktop):** uses the Fullscreen API and shows only the remote screen, with a control bar that hides itself.
+- **Mobile:** tapping the button opens a black viewer. The remote screen is centred at 16:9 with a round back button, the bot name, a "?" help button, and a floating "Take control" pill.
+  - Rotate the phone to landscape and the desktop fills the screen edge to edge. It uses the Fullscreen API where supported and a 100vw/100dvh CSS fallback on iOS.
