@@ -4,7 +4,7 @@ import { db, mediaPath, mediaUrl, projectMediaDir } from "./db";
 import { ffmpeg, probeDuration } from "./ffmpeg";
 import { speak } from "./providers/tts";
 import { videoProvider } from "./providers/video";
-import { chat, metaLive, structured } from "./providers/meta";
+import { chat, llmLive, structured } from "./providers/meta";
 import { findShot } from "./studio";
 import { aspectSize, type Project, type Shot } from "./types";
 
@@ -146,7 +146,7 @@ export async function renderProject(projectId: string) {
 async function reviewCut(p: Project, total: number) {
   const shots = shotsOf(p);
   const rows = await Promise.all(shots.map(async (s, i) => ({ i: i + 1, dur: s.durationSec, audio: s.audioUrl ? await probeDuration(mediaPath(s.audioUrl)) : 0, text: s.narration || s.dialogue || "", hasFrame: !!s.activeStart, continuity: s.continuity?.ok })));
-  if (metaLive()) {
+  if (llmLive()) {
     return chat([{ role: "system", content: "You are a post-production supervisor. Review this edit decision list for voice/subtitle sync, pacing, continuity and platform fit. Reply with 3-6 short bullet points and concrete fixes." }, { role: "user", content: `Format ${p.format} ${p.aspect}, total ${total.toFixed(1)}s.\n${JSON.stringify(rows)}` }], { temperature: 0.2 });
   }
   const notes: string[] = [];

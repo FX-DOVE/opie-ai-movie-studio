@@ -10,6 +10,11 @@ export const FIELDS: FieldDef[] = [
   { key: "META_TEXT_MODEL", label: "Writer / checker model", secret: false, group: "Meta Model API", default: "muse-spark-1.3", options: ["muse-spark-1.3", "muse-wonder-1.0"] },
   { key: "META_AGENT_MODEL", label: "Director / computer-use model", secret: false, group: "Meta Model API", default: "muse-wonder-1.0", options: ["muse-wonder-1.0", "muse-spark-1.3"] },
   { key: "META_IMAGE_MODEL", label: "Image model", secret: false, group: "Meta Model API", default: "muse-image-1.0" },
+  { key: "LLM_PRIMARY", label: "Which AI answers", secret: false, group: "AI brain (provider chain)", default: "auto", options: ["auto", "meta", "fallback"], help: "auto = Meta Muse when a Meta key is set, otherwise the fallback. If Meta errors, the fallback answers." },
+  { key: "FALLBACK_BASE_URL", label: "Fallback base URL (OpenAI-compatible)", secret: false, group: "AI brain (provider chain)", default: "https://api.x.ai/v1", help: "xAI Grok, OpenAI, OpenRouter, Groq, Together, local Ollama… any /chat/completions API." },
+  { key: "FALLBACK_API_KEY", label: "Fallback API key", secret: true, group: "AI brain (provider chain)", env: "FALLBACK_API_KEY", help: "Leave empty to reuse the xAI key below." },
+  { key: "FALLBACK_MODEL", label: "Fallback text model", secret: false, group: "AI brain (provider chain)", default: "grok-4-fast-non-reasoning" },
+  { key: "FALLBACK_VISION_MODEL", label: "Fallback vision model (screenshots)", secret: false, group: "AI brain (provider chain)", default: "grok-4-fast-non-reasoning" },
   { key: "VIDEO_PROVIDER", label: "Video provider", secret: false, group: "Video (first → last frame)", default: "mock", options: ["mock", "veo"] },
   { key: "GEMINI_API_KEY", label: "Google Gemini API key (Veo 3.1)", secret: true, group: "Video (first → last frame)", env: "GEMINI_API_KEY" },
   { key: "VEO_MODEL", label: "Veo model", secret: false, group: "Video (first → last frame)", default: "veo-3.1-generate-preview" },
@@ -55,8 +60,23 @@ export function configView() {
 export function liveStatus() {
   return {
     meta: !!getConfig("META_API_KEY"),
+    llm: llmLabel(),
     video: getConfig("VIDEO_PROVIDER") === "veo" && !!getConfig("GEMINI_API_KEY"),
     tts: getConfig("TTS_PROVIDER") || "edge",
     youtube: !!getConfig("YOUTUBE_API_KEY"),
   };
 }
+
+export function fallbackKey() { return getConfig("FALLBACK_API_KEY") || (/x\.ai/.test(getConfig("FALLBACK_BASE_URL") || "") ? getConfig("XAI_API_KEY") : undefined); }
+export function fallbackName() {
+  const u = getConfig("FALLBACK_BASE_URL") || "";
+  return /x\.ai/.test(u) ? "xAI Grok" : /openai\.com/.test(u) ? "OpenAI" : /openrouter/.test(u) ? "OpenRouter" : /groq/.test(u) ? "Groq" : /localhost|127\.0/.test(u) ? "Local LLM" : "OpenAI-compatible";
+}
+/** Ordered provider chain actually usable right now. */
+export function llmChain(): ("meta" | "fallback")[] {
+  const meta = !!getConfig("META_API_KEY"), fb = !!fallbackKey();
+  const pref = getConfig("LLM_PRIMARY") || "auto";
+  const order: ("meta" | "fallback")[] = pref === "fallback" ? ["fallback", "meta"] : ["meta", "fallback"];
+  return order.filter((x) => (x === "meta" ? meta : fb));
+}
+export function llmLabel() { const c = llmChain()[0]; return c === "meta" ? "Meta Muse" : c === "fallback" ? fallbackName() : "demo"; }

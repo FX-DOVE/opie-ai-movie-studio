@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Eye, FileUp, MessageSquareText, PenLine, Send, Wand2 } from "lucide-react";
 import { classify } from "@/lib/screenplay";
 import { PromptBar } from "./PromptBar";
+import { Brainstorm } from "./Brainstorm";
 import { Spinner } from "../ui";
 import type { TabProps } from "./common";
 
@@ -96,29 +97,11 @@ export function ScriptTab({ p, act, busy, toast, setP, openBrainstorm, next }: T
           </div>
         </section>
 
-        <aside className={`${chatOpen ? "flex" : "hidden"} xl:flex min-h-[420px] w-full flex-col border-t border-white/[0.06] bg-ink-900/60 xl:sticky xl:top-0 xl:h-dvh xl:w-[380px] xl:border-l xl:border-t-0`}>
-          <div className="flex h-14 shrink-0 items-center gap-2 border-b border-white/[0.06] px-4">
-            <MessageSquareText className="h-4 w-4 text-brand-400" /><span className="text-sm font-semibold">Brainstorm</span><span className="ml-auto text-[11px] text-ink-400">Muse Spark</span>
-          </div>
-          <div className="flex-1 space-y-3 overflow-y-auto p-4">
-            {p.brainstorm.length === 0 && <p className="text-sm text-ink-400">Throw out a topic, a feeling or a half-idea. Muse will pitch loglines, twists and titles. When you like one, ask it in the bottom bar to write the script.</p>}
-            {p.brainstorm.map((m, i) => (
-              <div key={i} className={`whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${m.role === "user" ? "ml-8 bg-brand-500/20 text-white" : "mr-4 bg-white/[0.04] text-ink-300"}`}>{m.content}</div>
-            ))}
-            {busy.has("brainstorm") && <div className="mr-4 flex items-center gap-2 rounded-2xl bg-white/[0.04] px-3.5 py-2.5 text-sm text-ink-400"><Spinner />Thinking…</div>}
-            <div ref={chatEnd} />
-          </div>
-          <div className="border-t border-white/[0.06] p-3">
-            <div className="flex gap-2">
-              <input className="input h-10" placeholder="Brainstorm an idea…" value={msg} onChange={(e) => setMsg(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} />
-              <button className="btn-primary h-10 w-10 px-0" onClick={send} disabled={busy.has("brainstorm")} aria-label="Send"><Send className="h-4 w-4" /></button>
-            </div>
-          </div>
-        </aside>
+        <Brainstorm p={p} setP={setP} act={act} toast={toast} open={chatOpen} onScript={() => { setView("read"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
       </div>
       <PromptBar busy={writing} placeholder={p.script ? "Tell Muse how to revise the script… (e.g. add a twist in scene 2, make Ada angrier)" : "Describe your idea and Muse will write the screenplay…"}
         hint={writing ? "Muse is writing…" : "Enter to send · Shift+Enter for a new line"}
-        onSubmit={async (v) => { const r = await act("writeScript", { prompt: v }); if (r?.ok) { setView("read"); toast((r.result as { source: string })?.source === "meta" ? "Muse updated the script" : "Script drafted (demo mode)"); } }} />
+        onSubmit={async (v) => { const r = await act("writeScript", { prompt: v }); if (r?.ok) { setView("read"); toast((r.result as { source: string })?.source === "mock" ? "Script drafted (demo mode)" : `Script written by ${(r.result as { source: string }).source}`); } }} />
     </>
   );
 }

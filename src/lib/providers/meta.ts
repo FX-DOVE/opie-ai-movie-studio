@@ -1,10 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
-import { getConfig } from "../config";
+import { fallbackKey, fallbackName, getConfig, llmChain } from "../config";
 import { mockImage } from "./mock-image";
 
 /** Meta Model API adapter (OpenAI-compatible). Live when META_API_KEY is configured, otherwise demo/mock mode. */
 export const metaLive = () => !!getConfig("META_API_KEY");
+/** Any real LLM (Meta or the OpenAI-compatible fallback) available for text/vision. */
+export const llmLive = () => llmChain().length > 0;
 const base = () => (getConfig("META_BASE_URL") || "https://api.meta.ai/v1").replace(/\/$/, "");
 
 type Part = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
@@ -25,14 +27,59 @@ export function imageToDataUrl(file: string) {
   return `data:image/${ext};base64,${fs.readFileSync(file).toString("base64")}`;
 }
 
-export async function chat(messages: Msg[], opts: { model?: string; json?: boolean; temperature?: number } = {}) {
-  const r = await metaFetch("/chat/completions", {
-    model: opts.model || getConfig("META_TEXT_MODEL") || "muse-spark-1.3",
-    messages,
-    temperature: opts.temperature ?? 0.7,
-    ...(opts.json ? { response_format: { type: "json_object" } } : {}),
-  });
-  return String(r.choices?.[0]?.message?.content ?? "");
+export interface LlmOpts { model?: string; json?: boolean; temperature?: number; vision?: boolean; agent?: boolean }
+export interface LlmResult { text: string; provider: string; model: string }
+
+function endpoint(which: "meta" | "fallback", o: LlmOpts) {
+  if (which === "meta") return { url: base(), key: getConfig("META_API_KEY")!, name: "Meta Muse", model: o.model || (o.agent ? getConfig("META_AGENT_MODEL") : getConfig("META_TEXT_MODEL")) || "muse-spark-1.3" };
+  return { url: (getConfig("FALLBACK_BASE_URL") || "https://api.x.ai/v1").replace(/\/$/, ""), key: fallbackKey()!, name: fallbackName(), model: (o.vision ? getConfig("FALLBACK_VISION_MODEL") : getConfig("FALLBACK_MODEL")) || "grok-4-fast-non-reasoning" };
+}
+function body(model: string, messages: Msg[], o: LlmOpts, stream = false) {
+  return JSON.stringify({ model, messages, temperature: o.temperature ?? 0.7, stream, ...(o.json ? { response_format: { type: "json_object" } } : {}) });
+}
+
+/** Provider chain: Meta Muse first (when keyed), then the OpenAI-compatible fallback. Reports who answered. */
+export async function chatP(messages: Msg[], o: LlmOpts = {}): Promise<LlmResult> {
+  const errs: string[] = [];
+  for (const w of llmChain()) {
+    const e = endpoint(w, o);
+    try {
+      const r = await fetch(e.url + "/chat/completions", { method: "POST", headers: { Authorization: `Bearer ${e.key}`, "Content-Type": "application/json" }, body: body(e.model, messages, o), signal: AbortSignal.timeout(Number(process.env.LLM_TIMEOUT_MS) || 240000) });
+      if (!r.ok) throw new Error(`${r.status}: ${(await r.text()).slice(0, 300)}`);
+      const j = await r.json();
+      return { text: String(j.choices?.[0]?.message?.content ?? ""), provider: e.name, model: e.model };
+    } catch (err) { errs.push(`${e.name}: ${(err as Error).message}`); }
+  }
+  throw new Error(errs.length ? "All AI providers failed — " + errs.join(" | ") : "No AI provider configured");
+}
+export async function chat(messages: Msg[], o: LlmOpts = {}) { return (await chatP(messages, o)).text; }
+
+/** Streaming chat through the chain. Yields text deltas; `meta` is filled with the provider that answered. */
+export async function* chatStream(messages: Msg[], o: LlmOpts, meta: { provider?: string; model?: string }) {
+  const errs: string[] = [];
+  for (const w of llmChain()) {
+    const e = endpoint(w, o);
+    let started = false;
+    try {
+      const r = await fetch(e.url + "/chat/completions", { method: "POST", headers: { Authorization: `Bearer ${e.key}`, "Content-Type": "application/json" }, body: body(e.model, messages, o, true), signal: AbortSignal.timeout(180000) });
+      if (!r.ok || !r.body) throw new Error(`${r.status}: ${(await r.text()).slice(0, 300)}`);
+      meta.provider = e.name; meta.model = e.model;
+      const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = "";
+      for (;;) {
+        const { value, done } = await reader.read(); if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+          if (!line.startsWith("data:")) continue;
+          const d = line.slice(5).trim(); if (d === "[DONE]") return;
+          try { const t = JSON.parse(d).choices?.[0]?.delta?.content; if (t) { started = true; yield t as string; } } catch { /* partial */ }
+        }
+      }
+      return;
+    } catch (err) { if (started) throw err; errs.push(`${e.name}: ${(err as Error).message}`); }
+  }
+  throw new Error(errs.length ? "All AI providers failed — " + errs.join(" | ") : "No AI provider configured");
 }
 
 export function parseJson<T>(s: string): T {
@@ -43,10 +90,10 @@ export function parseJson<T>(s: string): T {
 }
 
 /** Ask Muse for structured JSON; fall back to a deterministic local planner in demo mode. */
-export async function structured<T>(system: string, user: string, mock: () => T, model?: string): Promise<{ data: T; source: "meta" | "mock" }> {
-  if (!metaLive()) return { data: mock(), source: "mock" };
-  const out = await chat([{ role: "system", content: system + "\nRespond with valid JSON only." }, { role: "user", content: user }], { json: true, model });
-  return { data: parseJson<T>(out), source: "meta" };
+export async function structured<T>(system: string, user: string, mock: () => T, model?: string): Promise<{ data: T; source: string }> {
+  if (!llmLive()) return { data: mock(), source: "mock" };
+  const out = await chatP([{ role: "system", content: system + "\nRespond with valid JSON only." }, { role: "user", content: user }], { json: true, model: llmChain()[0] === "meta" ? model : undefined });
+  return { data: parseJson<T>(out.text), source: out.provider };
 }
 
 const SIZES: Record<string, string> = { "9:16": "1024x1792", "16:9": "1792x1024", "1:1": "1024x1024", "4:5": "1024x1280" };
@@ -85,6 +132,6 @@ export async function visionCheck(frame: string, refs: { name: string; file: str
     { type: "image_url", image_url: { url: imageToDataUrl(frame) } },
     ...refs.slice(0, 4).map((r) => ({ type: "image_url" as const, image_url: { url: imageToDataUrl(r.file) } })),
   ];
-  const out = await chat([{ role: "user", content }], { json: true, temperature: 0.1 });
+  const out = await chat([{ role: "user", content }], { json: true, temperature: 0.1, vision: true });
   return parseJson<{ ok: boolean; issues: string[]; fix_prompt?: string }>(out);
 }

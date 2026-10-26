@@ -12,12 +12,13 @@ const NAV = [
 ];
 
 export function StatusPill() {
-  const [s, setS] = useState<{ meta: boolean } | null>(null);
+  const [s, setS] = useState<{ meta: boolean; llm: string } | null>(null);
   useEffect(() => { fetch("/api/status").then((r) => r.json()).then(setS).catch(() => {}); }, []);
   if (!s) return null;
+  const live = s.llm && s.llm !== "demo";
   return (
-    <span className={`badge ${s.meta ? "bg-sky-500/15 text-sky-300" : "bg-amber-500/15 text-amber-300"}`} title={s.meta ? "Meta Muse models are live" : "No Meta key — running in demo mode"}>
-      <span className={`h-1.5 w-1.5 rounded-full ${s.meta ? "bg-sky-300" : "bg-amber-300"}`} />{s.meta ? "Muse live" : "Demo mode"}
+    <span className={`badge ${live ? "bg-sky-500/15 text-sky-300" : "bg-amber-500/15 text-amber-300"}`} title={live ? `AI brain: ${s.llm}${s.meta ? "" : " (fallback — add a Meta key for Muse)"}` : "No AI key — demo mode"}>
+      <span className={`h-1.5 w-1.5 rounded-full ${live ? "bg-sky-300" : "bg-amber-300"}`} />{live ? (s.meta ? "Muse live" : `${s.llm} live`) : "Demo mode"}
     </span>
   );
 }

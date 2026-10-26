@@ -77,5 +77,5 @@ export function SourceBadge({ source }: { source?: string }) {
   if (!source) return null;
   const map: Record<string, string> = { meta: "bg-sky-500/15 text-sky-300", mock: "bg-amber-500/15 text-amber-300", upload: "bg-emerald-500/15 text-emerald-300" };
   const label: Record<string, string> = { meta: "Muse", mock: "Demo", upload: "Upload" };
-  return <span className={`badge ${map[source] || "bg-white/10"}`}>{label[source] || source}</span>;
+  return <span className={`badge ${map[source] || "bg-sky-500/15 text-sky-300"}`}>{label[source] || source}</span>;
 }

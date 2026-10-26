@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { nanoid } from "nanoid";
 import { db, mediaPath, mediaUrl, projectMediaDir } from "./db";
-import { chat, generateImage, metaLive, structured, visionCheck } from "./providers/meta";
+import { generateImage, llmLive, structured, visionCheck } from "./providers/meta";
+import { llmLabel } from "./config";
 import { parseScenes, NARRATOR_RE } from "./screenplay";
 import { getConfig } from "./config";
 import { EDGE_VOICES } from "./providers/tts";
@@ -16,29 +17,6 @@ export function styleText(p: Project) {
 }
 function ctx(p: Project) {
   return `Mode: ${MODES[p.mode]}. Format: ${FORMATS[p.format].label} (${p.aspect}, max ${FORMATS[p.format].maxSec}s). Visual style: ${styleText(p)}.`;
-}
-
-// ───────────────────────── Brainstorm ─────────────────────────
-export async function brainstorm(p: Project, message: string): Promise<ChatMsg> {
-  let reply: string;
-  if (metaLive()) {
-    reply = await chat([
-      { role: "system", content: `You are Opie, a sharp creative development partner for an AI movie studio. ${ctx(p)} Help the user brainstorm: propose loglines, hooks, characters, twists and titles. Be concise, use short bullet lists, and end with one question.` },
-      ...p.brainstorm.slice(-12).map((m) => ({ role: m.role, content: m.content })),
-      { role: "user" as const, content: message },
-    ]);
-  } else {
-    const topic = message.replace(/[?.!]+$/, "");
-    const hooks = p.mode === "ad"
-      ? [`Problem → product reveal: open on the frustration ${topic} solves, hard cut to the product in hero light.`, `Day-in-the-life POV: one customer, one moment, the product saves it.`, `Before/after split screen with a 3-word on-screen promise.`]
-      : p.mode === "documentary"
-      ? [`Cold open on the most surprising fact about ${topic}, then rewind to the beginning.`, `Follow one person whose life is shaped by ${topic}.`, `Countdown structure: 5 things nobody tells you about ${topic}.`]
-      : [`A secret about ${topic} surfaces at the worst possible moment — a family dinner.`, `Two rivals are forced to work together because of ${topic}; trust is the real currency.`, `A small lie about ${topic} snowballs until one confession changes everything.`];
-    reply = `Here are three directions (demo mode — add a Meta key for Muse Spark):\n\n${hooks.map((h, i) => `${i + 1}. ${h}`).join("\n")}\n\nWhich one should I turn into a script, or shall we mix two?`;
-  }
-  const msg: ChatMsg = { role: "assistant", content: reply, at: now() };
-  await db.update(p.id, (x) => { x.brainstorm.push({ role: "user", content: message, at: now() }, msg); });
-  return msg;
 }
 
 // ───────────────────────── Script ─────────────────────────
@@ -140,7 +118,7 @@ export async function writeScript(p: Project, instruction: string) {
   const hasScript = p.script.trim().length > 40;
   const { data, source } = await structured<{ title: string; script: string }>(
     `You are an award-winning screenwriter for an AI movie studio. ${ctx(p)} Write in standard screenplay format: a first line "TITLE: ...", scene headings (INT./EXT. LOCATION - TIME), action lines, CHARACTER names in caps on their own line, optional (parentheticals), dialogue, and transitions like CUT TO:. ${p.mode !== "drama" ? "Use NARRATOR for voiceover lines." : ""} Describe characters vividly on first appearance (age, face, hair, skin tone, wardrobe colours, makeup, accessories) so continuity can be tracked. Keep runtime within the format limit. Return {"title": string, "script": string}.`,
-    hasScript ? `Current script:\n${p.script}\n\nRevise it according to: ${instruction || "tighten and improve it"}` : `Idea: ${instruction || p.idea}${p.brainstorm.length ? `\n\nBrainstorm notes:\n${p.brainstorm.slice(-6).map((m) => m.content).join("\n")}` : ""}`,
+    hasScript ? `Current script:\n${p.script}\n\nRevise it according to: ${instruction || "tighten and improve it"}` : `Idea: ${instruction || p.idea}${p.brainstorm.length ? `\n\nBrainstorm notes:\n${p.brainstorm.slice(-6).map((m) => m.content).join("\n")}` : ""}${(p.research || []).length ? `\n\nResearch notes:\n${(p.research || []).slice(-2).map((r) => r.notes.slice(0, 1500)).join("\n---\n")}` : ""}`,
     () => {
       if (hasScript) {
         const note = instruction ? `\n\n[Demo mode revision request noted: "${instruction}". Connect Muse Spark in Admin for real rewrites.]` : "";
@@ -359,11 +337,11 @@ export async function checkContinuity(p: Project, shotId: string) {
   const sh = findShot(p, shotId);
   const frame = sh.startFrame.find((v) => v.id === sh.activeStart);
   const assets = p.assets.filter((a) => sh.assetIds.includes(a.id));
-  let result: { ok: boolean; issues: string[] }; let source: "meta" | "mock" = "mock";
-  if (metaLive() && frame) {
+  let result: { ok: boolean; issues: string[] }; let source: string = "mock";
+  if (llmLive() && frame) {
     const refs = assets.map((a) => ({ name: a.name, img: a.images.find((i) => i.id === a.activeImage) })).filter((r) => r.img).map((r) => ({ name: r.name, file: mediaPath(r.img!.url) }));
     result = await visionCheck(mediaPath(frame.url), refs, p.bible, sh.description);
-    source = "meta";
+    source = llmLabel();
   } else {
     const issues: string[] = [];
     if (!frame) issues.push("No start frame generated yet.");

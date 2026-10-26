@@ -33,14 +33,16 @@ export interface Shot {
   activeEnd?: string;
   clipUrl?: string;
   audioUrl?: string;
-  continuity?: { ok: boolean; issues: string[]; checkedAt: string; source: "meta" | "mock" };
+  continuity?: { ok: boolean; issues: string[]; checkedAt: string; source: string };
   trimStart?: number;
   trimEnd?: number;
 }
 
 export interface Scene { id: string; heading: string; summary: string; shots: Shot[] }
 
-export interface ChatMsg { role: "user" | "assistant"; content: string; at: string }
+export interface Idea { title: string; logline: string; hook?: string; beats?: string[]; characters?: { name: string; description: string }[] }
+export interface ChatMsg { role: "user" | "assistant"; content: string; at: string; provider?: string; ideas?: Idea[]; kind?: "note" }
+export interface ResearchNote { id: string; goal: string; notes: string; at: string; provider?: string }
 
 export interface RenderJob { status: "idle" | "queued" | "running" | "done" | "error"; progress: number; message: string; url?: string; updatedAt: string; review?: string }
 
@@ -56,6 +58,7 @@ export interface Project {
   idea: string;
   script: string;
   brainstorm: ChatMsg[];
+  research?: ResearchNote[];
   assets: Asset[];
   scenes: Scene[];
   bible: string;

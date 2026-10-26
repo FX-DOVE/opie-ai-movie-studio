@@ -16,7 +16,9 @@ export async function POST(req: Request, { params }: Ctx) {
   try {
     let result: unknown = null;
     switch (b.action) {
-      case "brainstorm": result = await S.brainstorm(p, String(b.message || "")); break;
+      case "useIdea": await db.update(id, (x) => { const i = b.idea || {}; x.idea = [i.title && `${i.title}: `, i.logline, i.hook && `Hook: ${i.hook}`, i.beats?.length && `Beats:\n- ${i.beats.join("\n- ")}`, i.characters?.length && `Characters:\n- ${i.characters.map((c: { name: string; description: string }) => `${c.name} — ${c.description}`).join("\n- ")}`].filter(Boolean).join("\n"); if (i.title && (!x.title || x.title === "Untitled project")) x.title = i.title; }); break;
+      case "clearBrainstorm": await db.update(id, (x) => { x.brainstorm = []; }); break;
+      case "deleteResearch": await db.update(id, (x) => { x.research = (x.research || []).filter((r) => r.id !== b.researchId); }); break;
       case "writeScript": result = await S.writeScript(p, String(b.prompt || "")); break;
       case "extractAssets": result = await S.extractAssets(p); break;
       case "addAsset": await db.update(id, (x) => { x.assets.push({ id: nanoid(8), kind: b.kind, name: b.name || "New " + b.kind, description: "", details: "", images: [], voice: b.kind === "character" ? "en-US-AriaNeural" : undefined }); x.bible = S.buildBible(x); }); break;
@@ -56,7 +58,7 @@ export async function POST(req: Request, { params }: Ctx) {
         break;
       }
       case "aiEdit": result = await R.aiEdit(p, String(b.prompt || "")); break;
-      case "addNote": await db.update(id, (x) => { x.brainstorm.push({ role: "assistant", content: String(b.note || ""), at: new Date().toISOString() }); }); break;
+      case "addNote": await db.update(id, (x) => { const at = new Date().toISOString(); (x.research ||= []).push({ id: nanoid(8), goal: String(b.goal || "Research"), notes: String(b.note || ""), at, provider: b.provider }); x.brainstorm.push({ role: "assistant", kind: "note", content: `📎 Research notes attached: ${String(b.goal || "Research")}`, at }); }); break;
       default: return NextResponse.json({ error: "unknown action" }, { status: 400 });
     }
     return NextResponse.json({ ok: true, result, project: db.getProject(id) });
