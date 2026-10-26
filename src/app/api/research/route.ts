@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { listSessions, startResearch, type Task } from "@/lib/research";
+import { listSessions, startManual, startResearch, type Task } from "@/lib/research";
 export const dynamic = "force-dynamic";
 export async function GET() { return NextResponse.json(listSessions()); }
 export async function POST(req: Request) {
   const b = await req.json().catch(() => ({}));
+  if (b.manual) return NextResponse.json({ id: startManual(b.url ? String(b.url) : undefined).id });
   const task: Task = ["trending", "analyse", "watch", "custom"].includes(b.task) ? b.task : "trending";
   const goal = String(b.goal || (task === "watch" ? b.url : "") || "").trim();
   if (goal.length < 3) return NextResponse.json({ error: "Describe what to research" }, { status: 400 });

@@ -1,5 +1,7 @@
 import { nanoid } from "nanoid";
-import type { Browser, Page } from "playwright-core";
+import type { Browser, BrowserContext, Page } from "playwright-core";
+import path from "node:path";
+import { DATA_DIR } from "./db";
 import { getConfig, llmChain, llmLabel } from "./config";
 import { db } from "./db";
 import { chatP, llmLive, metaLive, parseJson, type Msg } from "./providers/meta";
@@ -8,11 +10,11 @@ export type Task = "trending" | "analyse" | "watch" | "custom";
 export interface Step { n: number; at: string; action: string; thought?: string; shot?: string; kind?: "act" | "note" | "info" | "error" }
 export interface Video { title: string; channel: string; views?: string; url: string; thumb?: string; published?: string; length?: string }
 export interface Session {
-  inbox?: string[]; redirects?: string[];
+  inbox?: string[]; redirects?: string[]; control?: boolean; needsUser?: string; manualLog?: string[];
   id: string; goal: string; task: Task; url?: string; projectId?: string;
   status: "running" | "paused" | "done" | "error" | "stopped";
   steps: Step[]; notes: string; findings: string[]; trending: Video[]; frames: string[]; transcript?: string;
-  mode: "meta-wonder" | "llm-agent" | "scripted"; provider: string; error?: string;
+  mode: "meta-wonder" | "llm-agent" | "scripted" | "manual"; provider: string; error?: string;
   stop?: boolean; pause?: boolean; maxSteps: number; screen?: string; pageUrl?: string; startedAt: string; savedToProject?: boolean;
 }
 
@@ -30,6 +32,25 @@ async function browser(): Promise<Browser> {
   const { chromium } = await import("playwright-core");
   return chromium.launch({ headless: true, executablePath: process.env.CHROMIUM_PATH || undefined, args: ["--no-sandbox", "--disable-dev-shm-usage", "--autoplay-policy=no-user-gesture-required", "--mute-audio"] });
 }
+export const UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
+const gp = globalThis as unknown as { __opieCtx?: Promise<BrowserContext>; __opiePages?: Map<string, Page> };
+export const pages = (gp.__opiePages ||= new Map());
+/** One persistent Chromium profile (cookies/logins survive restarts). Set BROWSER_HEADFUL=1 (under Xvfb) to look less automated. */
+export function profileContext(): Promise<BrowserContext> {
+  if (!gp.__opieCtx) gp.__opieCtx = (async () => {
+    const { chromium } = await import("playwright-core");
+    const headful = process.env.BROWSER_HEADFUL === "1";
+    const ctx = await chromium.launchPersistentContext(path.join(DATA_DIR, "browser-profiles", getConfig("BROWSER_PROFILE") || "default"), {
+      headless: !headful, executablePath: (headful ? process.env.CHROMIUM_HEADFUL_PATH : process.env.CHROMIUM_PATH) || undefined,
+      viewport: { width: W, height: H }, locale: "en-US", userAgent: UA, ignoreDefaultArgs: ["--enable-automation"],
+      args: ["--no-sandbox", "--disable-dev-shm-usage", "--autoplay-policy=no-user-gesture-required", "--mute-audio", "--disable-blink-features=AutomationControlled"],
+    });
+    ctx.on("close", () => { gp.__opieCtx = undefined; });
+    return ctx;
+  })().catch((e) => { gp.__opieCtx = undefined; throw e; });
+  return gp.__opieCtx;
+}
+export const isSignIn = async (page: Page) => /accounts\.google\.com|\/signin|\/login|ServiceLogin/i.test(page.url()) || (await page.locator("input[type=password]:visible").count().catch(() => 0)) > 0;
 async function snap(page: Page, quality = 55) {
   return "data:image/jpeg;base64," + (await page.screenshot({ type: "jpeg", quality })).toString("base64");
 }
@@ -44,7 +65,7 @@ async function log(s: Session, page: Page | null, action: string, thought?: stri
 }
 /** Honour Stop / Pause between actions. Returns false when stopped. */
 async function gate(s: Session) {
-  while (s.pause && !s.stop) await sleep(400);
+  while ((s.pause || s.control) && !s.stop) await sleep(400);
   if (s.status === "paused" && !s.stop) s.status = "running";
   return !s.stop;
 }
@@ -245,6 +266,11 @@ async function llmLoop(s: Session, page: Page) {
   await goto(page, start); await log(s, page, `navigate ${start}`, s.task === "watch" ? "Looking at the video's search context (similar titles & thumbnails)" : "Opening the starting page");
   for (let i = 0; i < s.maxSteps; i++) {
     if (!(await gate(s))) return;
+    if (await isSignIn(page)) {
+      s.needsUser = "signin"; s.control = true; s.pause = true; s.status = "paused";
+      await log(s, page, "Sign-in page — waiting for you", "I never type passwords. Press “Take control”, sign in yourself, then “Hand back to agent”.", "info");
+      if (!(await gate(s))) return; s.needsUser = undefined;
+    }
     const ob = await observe(page).catch(() => ({ title: "", url: page.url(), elements: "", text: "" }));
     await refresh(s, page);
     if (/youtube\.com\/(results|feed|@|$)/.test(page.url())) { const v = await scrapeResults(page); if (v.length) s.trending = mergeVideos(s.trending, v); }
@@ -277,7 +303,7 @@ async function llmLoop(s: Session, page: Page) {
       switch (a.type) {
         case "navigate": await goto(page, a.url!); label = `navigate ${a.url}`; break;
         case "click": { const el = sel(a.id); const t = (await el.innerText({ timeout: 2000 }).catch(() => "")).slice(0, 60).replace(/\s+/g, " "); await el.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => {}); await el.click({ timeout: 6000 }); await page.waitForTimeout(2500); label = `click [${a.id}] ${t}`; break; }
-        case "type": { const el = sel(a.id); await el.fill(a.text || "", { timeout: 5000 }); if (a.submit) await el.press("Enter"); await page.waitForTimeout(2500); label = `type "${a.text}"${a.submit ? " ⏎" : ""}`; break; }
+        case "type": { const el = sel(a.id); if ((await el.getAttribute("type").catch(() => "")) === "password") { label = "refused to type into a password field — ask the user to take control"; break; } await el.fill(a.text || "", { timeout: 5000 }); if (a.submit) await el.press("Enter"); await page.waitForTimeout(2500); label = `type "${a.text}"${a.submit ? " ⏎" : ""}`; break; }
         case "scroll": await page.mouse.wheel(0, a.direction === "up" ? -700 : 700); await page.waitForTimeout(1200); label = `scroll ${a.direction || "down"}`; break;
         case "read": { const t = (await page.locator("body").innerText()).replace(/\n{2,}/g, "\n").slice(0, 4000); memory.push(`READ ${page.url()}:\n${t.slice(0, 1800)}`); const v = await scrapeResults(page); if (v.length) s.trending = mergeVideos(s.trending, v); label = `read page (${t.length} chars${v.length ? `, ${v.length} videos` : ""})`; break; }
         case "transcript": { let t = blocked(ob.text) ? "" : await transcript(page); const vid = videoId(page.url()) || videoId(s.url); if (!t && vid) { const w = await watchVideo(s, page, `https://youtu.be/${vid}`); t = w.transcript; if (w.frames.length) s.frames = w.frames; } s.transcript = t; memory.push(t ? `TRANSCRIPT (${t.length} chars): ${t.slice(0, 3000)}` : "TRANSCRIPT: none available — use frames/description instead"); label = t ? `read transcript (${t.split(" ").length} words)` : "transcript unavailable"; break; }
@@ -380,12 +406,10 @@ export function startResearch(o: { goal: string; task?: Task; url?: string; proj
   const s: Session = { id: nanoid(10), goal: o.goal, task: o.task || "trending", url: o.url, projectId: o.projectId, status: "running", steps: [], notes: "", findings: [], trending: [], frames: [], mode, provider: llmLive() ? llmLabel() : "demo", maxSteps: Math.min(40, Math.max(3, o.maxSteps || parseInt(getConfig("RESEARCH_MAX_STEPS") || "14"))), startedAt: new Date().toISOString() };
   sessions.set(s.id, s);
   (async () => {
-    let b: Browser | null = null;
     try {
       await log(s, null, `Boot virtual desktop (headless Chromium ${W}×${H}) — ${mode === "scripted" ? "demo scripted mode" : `agent: ${s.provider}`}`, undefined, "info");
       await youtubeApi(s);
-      b = await browser();
-      const page = await (await b.newContext({ viewport: { width: W, height: H }, locale: "en-US", userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36" })).newPage();
+      const page = await (await profileContext()).newPage(); pages.set(s.id, page);
       if (mode === "meta-wonder") { try { await wonderLoop(s, page); } catch (e) { await log(s, null, "Muse Wonder unavailable — switching to vision agent", (e as Error).message.slice(0, 200), "error"); await llmLoop(s, page); } }
       else if (mode === "llm-agent") await llmLoop(s, page);
       else await scripted(s, page);
@@ -394,11 +418,51 @@ export function startResearch(o: { goal: string; task?: Task; url?: string; proj
       if (s.stop && !s.notes && s.findings.length) s.notes = `## Partial notes — ${s.goal}\n${s.findings.map((f) => "- " + f).join("\n")}`;
     } catch (e) { s.status = "error"; s.error = (e as Error).message.slice(0, 400); }
     finally {
-      await b?.close().catch(() => {});
+      await pages.get(s.id)?.close().catch(() => {}); pages.delete(s.id);
       if (s.projectId && s.notes) {
         await db.update(s.projectId, (x) => { const at = new Date().toISOString(); (x.research ||= []).push({ id: s.id, goal: s.goal, notes: s.notes, at, provider: s.provider }); x.brainstorm.push({ role: "assistant", kind: "note", content: `📎 Research notes attached: ${s.goal}`, at }); }).then(() => (s.savedToProject = true)).catch(() => {});
       }
     }
   })();
   return s;
+}
+
+/** A browser the user drives by hand (sign in once, browse, then ask the agent). */
+export function startManual(url = "https://www.google.com") {
+  const s: Session = { id: nanoid(10), goal: "Manual browsing", task: "custom", status: "paused", steps: [], notes: "", findings: [], trending: [], frames: [], mode: "manual", provider: "you", maxSteps: 0, control: true, startedAt: new Date().toISOString() };
+  sessions.set(s.id, s);
+  (async () => {
+    try {
+      const page = await (await profileContext()).newPage(); pages.set(s.id, page);
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
+      await log(s, page, `open ${url}`, "You're in control — click, type and scroll on the screen.", "info");
+      let idle = 0; while (!s.stop && idle < 1800) { await sleep(1000); idle++; }
+    } catch (e) { s.error = (e as Error).message.slice(0, 300); s.status = "error"; }
+    finally { await pages.get(s.id)?.close().catch(() => {}); pages.delete(s.id); if (s.status !== "error") s.status = "stopped"; }
+  })();
+  return s;
+}
+
+/** Forward one user input event to the live page. Typed text is never logged (could be a password). */
+export async function control(s: Session, e: { t: string; x?: number; y?: number; dy?: number; text?: string; key?: string; url?: string }) {
+  const page = pages.get(s.id); if (!page) throw new Error("No live page for this session");
+  const L = (s.manualLog ||= []);
+  switch (e.t) {
+    case "click": await page.mouse.click(Math.round((e.x || 0) * W), Math.round((e.y || 0) * H)); L.push(`clicked at ${Math.round((e.x || 0) * 100)}%,${Math.round((e.y || 0) * 100)}%`); break;
+    case "scroll": await page.mouse.wheel(0, e.dy || 400); break;
+    case "type": await page.keyboard.insertText(e.text || ""); L.push("typed text"); break;
+    case "key": { const k = { Backspace: "Backspace", Enter: "Enter", Tab: "Tab", Escape: "Escape", ArrowUp: "ArrowUp", ArrowDown: "ArrowDown", ArrowLeft: "ArrowLeft", ArrowRight: "ArrowRight", Delete: "Delete" }[e.key || ""]; if (k) await page.keyboard.press(k); break; }
+    case "navigate": { let u = (e.url || "").trim(); if (!/^https?:\/\//.test(u)) u = /\.[a-z]{2,}(\/|$)/i.test(u) && !/\s/.test(u) ? "https://" + u : `https://www.google.com/search?q=${encodeURIComponent(u)}`; await page.goto(u, { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {}); L.push(`opened ${u.slice(0, 80)}`); break; }
+    case "back": await page.goBack({ timeout: 15000 }).catch(() => {}); break;
+    case "forward": await page.goForward({ timeout: 15000 }).catch(() => {}); break;
+    case "reload": await page.reload({ timeout: 30000 }).catch(() => {}); break;
+  }
+  if (L.length > 40) L.splice(0, L.length - 40);
+  await page.waitForTimeout(e.t === "type" || e.t === "scroll" ? 80 : 350);
+  return frame(s);
+}
+export async function frame(s: Session) {
+  const page = pages.get(s.id); if (!page) return { screen: s.screen, url: s.pageUrl };
+  s.screen = await snap(page, 50).catch(() => s.screen); s.pageUrl = page.url();
+  return { screen: s.screen, url: s.pageUrl, signIn: await isSignIn(page) };
 }

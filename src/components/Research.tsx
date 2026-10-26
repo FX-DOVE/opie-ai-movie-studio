@@ -1,14 +1,14 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Bot, Captions, Eye, Film, Globe2, Lightbulb, MonitorPlay, MousePointerClick, NotebookPen, Pause, Play, Send, Square, TrendingUp } from "lucide-react";
+import { ArrowLeft, ArrowRight, Hand, Keyboard, RotateCw, Bot, Captions, Eye, Film, Globe2, Lightbulb, MonitorPlay, MousePointerClick, NotebookPen, Pause, Play, Send, Square, TrendingUp } from "lucide-react";
 import { Spinner, useToast } from "./ui";
 import { StatusPill } from "./AppShell";
 import { AgentChat } from "./AgentChat";
 
 type Step = { n: number; at: string; action: string; thought?: string; kind?: string };
 type Video = { title: string; channel: string; views?: string; url: string; thumb?: string; published?: string };
-type Session = { id: string; goal: string; task: string; status: string; steps: Step[]; notes: string; findings: string[]; trending: Video[]; frames: string[]; transcript?: string; mode: string; provider: string; error?: string; maxSteps: number; screen?: string; pageUrl?: string; projectId?: string; savedToProject?: boolean };
+type Session = { control?: boolean; needsUser?: string; id: string; goal: string; task: string; status: string; steps: Step[]; notes: string; findings: string[]; trending: Video[]; frames: string[]; transcript?: string; mode: string; provider: string; error?: string; maxSteps: number; screen?: string; pageUrl?: string; projectId?: string; savedToProject?: boolean };
 
 const TASKS = [
   { id: "trending", label: "Trending topics", icon: TrendingUp, ph: "Niche, e.g. Nollywood family drama", presets: ["Nollywood family drama", "Anime short films", "African history documentaries", "Skincare product ads"] },
@@ -60,6 +60,33 @@ export function Research() {
     if (timer.current) clearTimeout(timer.current);
     setShowT(false); poll(j.id);
   };
+  const [ctrlOn, setCtrlOn] = useState(false);
+  const [live, setLive] = useState<{ screen?: string; url?: string }>({});
+  const [addr, setAddr] = useState("");
+  const [kb, setKb] = useState("");
+  const scr = useRef<HTMLDivElement>(null);
+  const inFlight = useRef(false);
+  const send = async (e: Record<string, unknown>) => {
+    if (!s) return; inFlight.current = true;
+    try { const r = await fetch(`/api/research/${s.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(e) }); const j = await r.json(); if (r.ok) { setLive(j); if (j.url && document.activeElement?.id !== "addr") setAddr(j.url); } } finally { inFlight.current = false; }
+  };
+  const controlling = ctrlOn && !!s && (s.status === "running" || s.status === "paused");
+  useEffect(() => { if (!controlling) return; const t = setInterval(() => { if (!inFlight.current) send({ t: "frame" }); }, 450); return () => clearInterval(t); }, [controlling, s?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (s?.control && s.mode === "manual") setCtrlOn(true); }, [s?.id, s?.control, s?.mode]);
+  const takeover = async () => { await ctl("takeover"); setCtrlOn(true); setTimeout(() => scr.current?.focus(), 50); };
+  const handback = async () => { await ctl("handback"); setCtrlOn(false); setLive({}); };
+  const openBrowser = async (url?: string) => {
+    if (s && pagesLive() && s.mode === "manual") return send({ t: "navigate", url });
+    const r = await fetch("/api/research", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ manual: true, url }) }); const j = await r.json();
+    if (timer.current) clearTimeout(timer.current); setCtrlOn(true); poll(j.id);
+  };
+  const pagesLive = () => s?.status === "running" || s?.status === "paused";
+  const onScreenClick = (e: React.MouseEvent<HTMLDivElement>) => { const r = e.currentTarget.getBoundingClientRect(); send({ t: "click", x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height }); scr.current?.focus(); };
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.metaKey || e.ctrlKey) return; // let paste etc. through
+    if (e.key.length === 1) { e.preventDefault(); send({ t: "type", text: e.key }); }
+    else if (["Enter", "Tab", "Backspace", "Escape", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Delete"].includes(e.key)) { e.preventDefault(); send({ t: "key", key: e.key }); }
+  };
   const ctl = (op: string) => s && fetch(`/api/research/${s.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op }) });
   const running = s?.status === "running" || s?.status === "paused";
   const T = TASKS.find((t) => t.id === task)!;
@@ -90,22 +117,43 @@ export function Research() {
           </div>
         ) : <button className="btn-brand h-11 px-5" onClick={() => start()} disabled={!goal.trim()}><Play className="h-4 w-4" />Start agent</button>}
       </div>
+      <div className="mt-3 flex flex-wrap items-center gap-1.5"><span className="text-[11px] text-ink-500">Open browser:</span>{[["Google Drive", "https://drive.google.com"], ["YouTube", "https://www.youtube.com"], ["Gmail", "https://mail.google.com"], ["Google", "https://www.google.com"]].map(([l, u]) => <button key={l} className="chip" onClick={() => openBrowser(u)}><Globe2 className="h-3.5 w-3.5" />{l}</button>)}<span className="text-[11px] text-ink-500">· logins persist in this workspace’s browser profile</span></div>
       {!running && T.presets.length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{T.presets.map((p) => <button key={p} className="chip" onClick={() => start(p)}>{p}</button>)}</div>}
 
       <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
         <div className="xl:col-span-2 grid gap-5 lg:grid-cols-[minmax(0,1fr)_400px]">
         <div className="panel overflow-hidden">
-          <div className="flex h-10 items-center gap-2 border-b border-white/[0.06] bg-ink-900 px-3">
-            <span className="flex gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-red-400/70" /><i className="h-2.5 w-2.5 rounded-full bg-amber-400/70" /><i className="h-2.5 w-2.5 rounded-full bg-emerald-400/70" /></span>
-            <span className="ml-2 min-w-0 flex-1 truncate rounded-md bg-ink-800 px-3 py-1 text-xs text-ink-400">{s?.pageUrl || "about:blank"}</span>
-            {s && <span className={`badge ${s.status === "running" ? "bg-emerald-500/15 text-emerald-300" : s.status === "paused" ? "bg-amber-500/15 text-amber-300" : s.status === "error" ? "bg-red-500/15 text-red-300" : "bg-white/10 text-ink-300"}`}>{s.status === "running" && <i className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300" />}{s.status === "running" ? "LIVE" : s.status}</span>}
+          <div className="flex h-11 items-center gap-1.5 border-b border-white/[0.06] bg-ink-900 px-2">
+            {controlling ? <>
+              <button title="Back" className="grid h-8 w-8 place-items-center rounded-md hover:bg-white/10" onClick={() => send({ t: "back" })}><ArrowLeft className="h-4 w-4" /></button>
+              <button title="Forward" className="grid h-8 w-8 place-items-center rounded-md hover:bg-white/10" onClick={() => send({ t: "forward" })}><ArrowRight className="h-4 w-4" /></button>
+              <button title="Reload" className="grid h-8 w-8 place-items-center rounded-md hover:bg-white/10" onClick={() => send({ t: "reload" })}><RotateCw className="h-4 w-4" /></button>
+              <input id="addr" className="h-8 min-w-0 flex-1 rounded-md bg-ink-800 px-3 text-xs text-white outline-none focus:ring-1 focus:ring-brand-400" value={addr} onChange={(e) => setAddr(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { send({ t: "navigate", url: addr }); (e.target as HTMLInputElement).blur(); } }} placeholder="Search or type a URL" />
+            </> : <>
+              <span className="flex gap-1.5 pl-1"><i className="h-2.5 w-2.5 rounded-full bg-red-400/70" /><i className="h-2.5 w-2.5 rounded-full bg-amber-400/70" /><i className="h-2.5 w-2.5 rounded-full bg-emerald-400/70" /></span>
+              <span className="ml-2 min-w-0 flex-1 truncate rounded-md bg-ink-800 px-3 py-1 text-xs text-ink-400">{s?.pageUrl || "about:blank"}</span>
+            </>}
+            {s && pagesLive() && (controlling
+              ? (s.mode === "manual" ? <button className="btn-outline h-8 px-2 text-xs text-red-300" onClick={() => { ctl("stop"); setCtrlOn(false); }}><Square className="h-3.5 w-3.5" />Close</button> : <button className="btn-brand h-8 px-2 text-xs" onClick={handback}><Bot className="h-3.5 w-3.5" />Hand back to agent</button>)
+              : <button className={`h-8 px-2 text-xs ${s.needsUser ? "btn-brand animate-pulse" : "btn-outline"}`} onClick={takeover}><Hand className="h-3.5 w-3.5" />Take control</button>)}
+            {s && !controlling && <span className={`badge ${s.status === "running" ? "bg-emerald-500/15 text-emerald-300" : s.status === "paused" ? "bg-amber-500/15 text-amber-300" : s.status === "error" ? "bg-red-500/15 text-red-300" : "bg-white/10 text-ink-300"}`}>{s.status === "running" && <i className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300" />}{s.status === "running" ? "LIVE" : s.status}</span>}
           </div>
-          <div className="relative aspect-[16/10] bg-ink-950">
-            {s?.screen ? <img src={s.screen} alt="Agent screen" className="absolute inset-0 h-full w-full object-contain" /> : (
+          {s?.needsUser === "signin" && !controlling && <div className="border-b border-amber-400/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">This page needs a sign-in. The agent never types passwords — press <b>Take control</b>, sign in yourself, then hand back. Your login stays in this browser profile.</div>}
+          <div ref={scr} tabIndex={controlling ? 0 : -1} onKeyDown={controlling ? onKey : undefined} onPaste={controlling ? (e) => { e.preventDefault(); send({ t: "type", text: e.clipboardData.getData("text") }); } : undefined}
+            onClick={controlling ? onScreenClick : undefined} onWheel={controlling ? (e) => send({ t: "scroll", dy: Math.max(-800, Math.min(800, e.deltaY * 2)) }) : undefined}
+            className={`relative aspect-[16/10] bg-ink-950 outline-none ${controlling ? "cursor-pointer ring-2 ring-inset ring-brand-400/60" : ""}`}>
+            {(controlling ? live.screen || s?.screen : s?.screen) ? <img src={controlling ? live.screen || s?.screen : s?.screen} alt="Agent screen" draggable={false} className="absolute inset-0 h-full w-full select-none object-contain" /> : (
               <div className="absolute inset-0 grid place-items-center text-center text-ink-600"><div><MonitorPlay className="mx-auto h-10 w-10" />{running ? <p className="mt-2 flex items-center gap-2 text-sm"><Spinner />Booting browser…</p> : <p className="mt-2 text-sm">The agent’s screen streams here live</p>}</div></div>
             )}
-            {s && <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-4 pb-3 pt-8 text-xs text-white/90"><span className="text-ink-300">Step {acts}/{s.maxSteps} · </span>{s.steps[s.steps.length - 1]?.action}</div>}
+            {s && !controlling && <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-4 pb-3 pt-8 text-xs text-white/90"><span className="text-ink-300">Step {acts}/{s.maxSteps} · </span>{s.steps[s.steps.length - 1]?.action}</div>}
+            {controlling && <span className="pointer-events-none absolute left-2 top-2 badge bg-brand-500/80 text-white"><Hand className="h-3 w-3" />You’re in control</span>}
           </div>
+          {controlling && <div className="flex flex-wrap items-center gap-1.5 border-t border-white/[0.06] p-2">
+            <Keyboard className="h-4 w-4 text-ink-400" />
+            <input className="input h-9 min-w-0 flex-1" placeholder="Type into the page (mobile keyboard)…" value={kb} onChange={(e) => setKb(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (kb) send({ t: "type", text: kb }).then(() => send({ t: "key", key: "Enter" })); else send({ t: "key", key: "Enter" }); setKb(""); } }} />
+            <button className="btn-outline h-9 px-2 text-xs" onClick={() => { if (kb) send({ t: "type", text: kb }); setKb(""); }}>Send text</button>
+            {["Enter", "Tab", "Backspace"].map((k) => <button key={k} className="btn-outline h-9 px-2 text-xs" onClick={() => send({ t: "key", key: k })}>{k === "Backspace" ? "⌫" : k === "Enter" ? "⏎ Enter" : "⇥ Tab"}</button>)}
+          </div>}
           {s && s.frames.length > 0 && <div className="grid grid-cols-4 gap-1 border-t border-white/[0.06] p-2">{s.frames.map((f, i) => <img key={i} src={f} alt={`frame ${i + 1}`} className="aspect-video w-full rounded object-cover" />)}</div>}
         </div>
         <div className="panel flex h-[560px] flex-col overflow-hidden lg:h-auto lg:max-h-[720px] lg:min-h-[520px]">
