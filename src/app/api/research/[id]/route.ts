@@ -13,8 +13,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (!s) return NextResponse.json({ error: "not found" }, { status: 404 });
   const { op } = await req.json().catch(() => ({}));
   if (op === "stop") { s.stop = true; s.pause = false; }
-  if (op === "pause") s.pause = true;
-  if (op === "resume") s.pause = false;
+  if (op === "pause" && s.status === "running") { s.pause = true; s.status = "paused"; }
+  if (op === "resume") { s.pause = false; if (s.status === "paused") s.status = "running"; }
   return NextResponse.json({ ok: true });
 }
 export async function DELETE(_: Request, ctx: Ctx) {

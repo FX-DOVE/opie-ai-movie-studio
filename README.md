@@ -88,3 +88,36 @@ Everything in this repository was written for the hackathon: the Next.js app and
 
 ## License
 MIT
+
+## v2 upgrade: AI brain, Brainstorm studio, virtual desktop agent
+
+### AI brain (provider chain)
+Set these in **Admin → AI brain**. Keys are encrypted and stay on the server.
+- **Meta Llama** (muse-spark / muse-wonder) is the primary whenever a Meta key exists.
+- **OpenAI-compatible fallback**: `FALLBACK_BASE_URL`, `FALLBACK_API_KEY`, `FALLBACK_MODEL`, `FALLBACK_VISION_MODEL`.
+  - xAI Grok is the default (`https://api.x.ai/v1`, or `XAI_API_KEY` in `.env`).
+  - Any OpenAI-compatible server also works, including a local llama.cpp, e.g. `llama-server -m qwen2.5-vl.gguf --mmproj mmproj.gguf --port 8080`, then `FALLBACK_BASE_URL=http://127.0.0.1:8080/v1`.
+- `LLM_PRIMARY` = auto | meta | fallback. The UI shows which provider answered.
+- `LLM_TIMEOUT_MS` sets the timeout (default 240000).
+
+### Brainstorm studio (Script tab)
+- Streaming chat (NDJSON) with prompts for each mode: drama, documentary and ad.
+- Replies include idea cards: logline, hook, beat sheet and characters.
+- **Use this idea** sets the project idea. **Write full script** hands the idea to the Script tab.
+- Research notes are attached as context chips.
+- History is saved per project.
+
+### Virtual desktop (/research)
+A real agent loop runs in headless Chromium. At each step a vision LLM receives a screenshot plus the page's accessibility text and picks an action: navigate, click, type, scroll, read, transcript, frames, note or done.
+
+The UI shows:
+- the live screen and action log;
+- Pause/Resume/Stop controls;
+- a step cap (3–40).
+
+Tasks:
+- **Trending in a niche**: uses the YouTube Data API when `YOUTUBE_API_KEY` is set, and scrapes search results otherwise.
+- **Titles and thumbnails analysis**.
+- **Watch a video**: reads the captions and samples frames, then describes them with vision. It uses the youtube-nocookie embed, which works even on IPs where YouTube watch pages show a bot-check.
+
+Notes are saved to the project automatically and feed into Brainstorm. Without an LLM key, a scripted demo runs instead.

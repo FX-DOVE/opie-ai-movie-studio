@@ -43,8 +43,8 @@ async function log(s: Session, page: Page | null, action: string, thought?: stri
 }
 /** Honour Stop / Pause between actions. Returns false when stopped. */
 async function gate(s: Session) {
-  while (s.pause && !s.stop) { s.status = "paused"; await sleep(400); }
-  if (s.status === "paused") s.status = "running";
+  while (s.pause && !s.stop) await sleep(400);
+  if (s.status === "paused" && !s.stop) s.status = "running";
   return !s.stop;
 }
 
