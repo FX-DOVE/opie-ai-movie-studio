@@ -121,3 +121,15 @@ Tasks:
 - **Watch a video**: reads the captions and samples frames, then describes them with vision. It uses the youtube-nocookie embed, which works even on IPs where YouTube watch pages show a bot-check.
 
 Notes are saved to the project automatically and feed into Brainstorm. Without an LLM key, a scripted demo runs instead.
+
+### Opie assistant (an agent that works across the whole studio)
+A floating ✨ button appears on every page, and the Virtual Desktop has a chat panel beside the live browser. You talk to it naturally. It streams a reply, plans the work, and runs studio tools one at a time, showing a progress card for each:
+
+`create_project` (mode, format, aspect, style) · `brainstorm` · `use_idea` · `write_script` · `extract_assets` · `generate_asset_images` · `build_storyboard` · `generate_frames` · `edit_shot` · `continuity_check` / `fix_continuity` · `voiceover` · `render_video` · `edit_video` · `research` (the virtual desktop agent; notes are saved to the project) · `project_status`.
+
+- **Example:** "make a 60s TikTok product ad for my akara brand" creates the project, then writes the script, builds the assets, storyboard and frames, renders, and finishes with a conversational summary.
+- **Interrupt any time.** A message sent mid-task steers the desktop agent, and the planner re-plans around it. "stop" halts everything.
+- **Follow-ups:** ask about what it saw; the tool results stay in the conversation context.
+- **Weaker models:** when a model under-plans, a sequential production pipeline fills in the missing stages and never skips past a failed stage.
+- **Model:** Meta Muse Wonder (`META_AGENT_MODEL`) is used when a Meta key is set. Otherwise the fallback LLM is used.
+- **API:** `POST /api/agent {convId?, message, projectId?}` streams NDJSON events: `delta`, `plan`, `tool_start`, `tool_args`, `tool_end`, `status`, `session`, `project`, `turn_end`, `done`.

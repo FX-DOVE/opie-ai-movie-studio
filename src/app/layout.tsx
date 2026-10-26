@@ -1,3 +1,4 @@
+import { FloatingAgent } from "@/components/AgentChat";
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
@@ -14,7 +15,7 @@ export const viewport: Viewport = { themeColor: "#07070a", width: "device-width"
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${inter.variable} ${mono.variable}`}>
-      <body className="min-h-dvh font-sans">{children}</body>
+      <body className="min-h-dvh font-sans">{children}<FloatingAgent /></body>
     </html>
   );
 }

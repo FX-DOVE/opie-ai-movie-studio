@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Bot, Captions, Eye, Film, Globe2, Lightbulb, MonitorPlay, MousePointerClick, NotebookPen, Pause, Play, Send, Square, TrendingUp } from "lucide-react";
 import { Spinner, useToast } from "./ui";
 import { StatusPill } from "./AppShell";
+import { AgentChat } from "./AgentChat";
 
 type Step = { n: number; at: string; action: string; thought?: string; kind?: string };
 type Video = { title: string; channel: string; views?: string; url: string; thumb?: string; published?: string };
@@ -92,6 +93,7 @@ export function Research() {
       {!running && T.presets.length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{T.presets.map((p) => <button key={p} className="chip" onClick={() => start(p)}>{p}</button>)}</div>}
 
       <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <div className="xl:col-span-2 grid gap-5 lg:grid-cols-[minmax(0,1fr)_400px]">
         <div className="panel overflow-hidden">
           <div className="flex h-10 items-center gap-2 border-b border-white/[0.06] bg-ink-900 px-3">
             <span className="flex gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-red-400/70" /><i className="h-2.5 w-2.5 rounded-full bg-amber-400/70" /><i className="h-2.5 w-2.5 rounded-full bg-emerald-400/70" /></span>
@@ -105,6 +107,11 @@ export function Research() {
             {s && <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-4 pb-3 pt-8 text-xs text-white/90"><span className="text-ink-300">Step {acts}/{s.maxSteps} · </span>{s.steps[s.steps.length - 1]?.action}</div>}
           </div>
           {s && s.frames.length > 0 && <div className="grid grid-cols-4 gap-1 border-t border-white/[0.06] p-2">{s.frames.map((f, i) => <img key={i} src={f} alt={`frame ${i + 1}`} className="aspect-video w-full rounded object-cover" />)}</div>}
+        </div>
+        <div className="panel flex h-[560px] flex-col overflow-hidden lg:h-auto lg:max-h-[720px] lg:min-h-[520px]">
+          <div className="flex items-center gap-2 border-b border-white/[0.06] px-3 py-2.5"><Bot className="h-4 w-4 text-brand-400" /><span className="text-sm font-semibold">Talk to the agent</span><span className="text-[10px] text-ink-500">it drives the desktop for you</span></div>
+          <AgentChat projectId={target || undefined} className="flex-1" onSession={(id) => { if (timer.current) clearTimeout(timer.current); setShowT(false); poll(id); }} starters={["What’s trending in Nollywood family drama right now?", "Watch https://www.youtube.com/watch?v=jNQXAC9IVRw and tell me what happens", "Compare thumbnails of top anime short films"]} />
+        </div>
         </div>
 
         <div className="flex min-w-0 flex-col gap-5">

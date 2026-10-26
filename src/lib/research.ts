@@ -8,6 +8,7 @@ export type Task = "trending" | "analyse" | "watch" | "custom";
 export interface Step { n: number; at: string; action: string; thought?: string; shot?: string; kind?: "act" | "note" | "info" | "error" }
 export interface Video { title: string; channel: string; views?: string; url: string; thumb?: string; published?: string; length?: string }
 export interface Session {
+  inbox?: string[]; redirects?: string[];
   id: string; goal: string; task: Task; url?: string; projectId?: string;
   status: "running" | "paused" | "done" | "error" | "stopped";
   steps: Step[]; notes: string; findings: string[]; trending: Video[]; frames: string[]; transcript?: string;
@@ -249,7 +250,8 @@ async function llmLoop(s: Session, page: Page) {
     if (/youtube\.com\/(results|feed|@|$)/.test(page.url())) { const v = await scrapeResults(page); if (v.length) s.trending = mergeVideos(s.trending, v); }
     if (blocked(ob.text)) memory.push("NOTE: YouTube showed a bot-check on this page. Don't retry it — use the transcript/frames actions (they open the video player directly), go back to search results, or finish.");
     const left = s.maxSteps - i;
-    const obsText = `TASK: ${brief}\nSteps left: ${left}${left <= 2 ? " — finish now with done." : ""}\n\nYour findings so far:\n${s.findings.slice(-14).map((f) => "- " + f).join("\n") || "(none)"}\n\nRecent actions:\n${memory.slice(-6).join("\n") || "(none)"}\n\nPAGE: ${ob.title}\nURL: ${ob.url}\n\nELEMENTS:\n${ob.elements}\n\nVISIBLE TEXT:\n${ob.text}`;
+    if (s.inbox?.length) { const m = s.inbox.splice(0); (s.redirects ||= []).push(...m); memory.push(...m.map((x) => `USER SAID (mid-task, top priority — adapt your plan to this): ${x}`)); }
+    const obsText = `${s.redirects?.length ? `USER INSTRUCTIONS DURING TASK (override the task where they conflict): ${s.redirects.join(" | ")}\n` : ""}TASK: ${brief}\nSteps left: ${left}${left <= 2 ? " — finish now with done." : ""}\n\nYour findings so far:\n${s.findings.slice(-14).map((f) => "- " + f).join("\n") || "(none)"}\n\nRecent actions:\n${memory.slice(-6).join("\n") || "(none)"}\n\nPAGE: ${ob.title}\nURL: ${ob.url}\n\nELEMENTS:\n${ob.elements}\n\nVISIBLE TEXT:\n${ob.text}`;
     const msgs: Msg[] = [{ role: "system", content: AGENT_SYS }, { role: "user", content: vision && s.screen ? [{ type: "text", text: obsText }, { type: "image_url", image_url: { url: s.screen } }] : obsText }];
     let res;
     try { res = await chatP(msgs, { json: true, temperature: 0.2, vision: vision, agent: true }); }

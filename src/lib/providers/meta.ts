@@ -44,7 +44,10 @@ export async function chatP(messages: Msg[], o: LlmOpts = {}): Promise<LlmResult
   for (const w of llmChain()) {
     const e = endpoint(w, o);
     try {
-      const r = await fetch(e.url + "/chat/completions", { method: "POST", headers: { Authorization: `Bearer ${e.key}`, "Content-Type": "application/json" }, body: body(e.model, messages, o), signal: AbortSignal.timeout(Number(process.env.LLM_TIMEOUT_MS) || 240000) });
+      const go = (oo: LlmOpts) => fetch(e.url + "/chat/completions", { method: "POST", headers: { Authorization: `Bearer ${e.key}`, "Content-Type": "application/json" }, body: body(e.model, messages, oo), signal: AbortSignal.timeout(Number(process.env.LLM_TIMEOUT_MS) || 240000) });
+      let r = await go(o);
+      // Some OpenAI-compatible servers reject response_format/json grammars — retry once as plain text.
+      if (r.status === 400 && o.json) r = await go({ ...o, json: false });
       if (!r.ok) throw new Error(`${r.status}: ${(await r.text()).slice(0, 300)}`);
       const j = await r.json();
       return { text: String(j.choices?.[0]?.message?.content ?? ""), provider: e.name, model: e.model };
