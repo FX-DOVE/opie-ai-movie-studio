@@ -132,7 +132,7 @@ export function agentStream(o: { convId?: string; message: string; projectId?: s
           const meta: { provider?: string; model?: string } = {}; let full = ""; emit({ type: "thinking" });
           for await (const d of chatStream([{ role: "system", content: system(conv) }, ...hist(), { role: "user", content: `[runtime instruction, not from the user] ${instruction} Never describe a step as done unless a TOOL RESULT shows it; no bracketed placeholders like [Writing Script]. Keep it under 120 words.` }], { temperature: 0.5, agent: true }, meta)) {
             if (!full) emit({ type: "provider", provider: meta.provider, model: meta.model });
-            const cut = (full + d).search(/\n?\s*(CALL\s*\{|```|\[runtime)/); if (cut >= 0) { const rest = (full + d).slice(full.length, cut); if (rest) emit({ type: "delta", text: rest }); full = (full + d).slice(0, cut); break; }
+            const cut = (full + d).search(/\n?\s*(CALL\s*\{|```|\n\s*\[)/); if (cut >= 0) { const rest = (full + d).slice(full.length, cut); if (rest) emit({ type: "delta", text: rest }); full = (full + d).slice(0, cut); break; }
             full += d; emit({ type: "delta", text: d });
             if (full.length > 1400) break;
           }
@@ -159,9 +159,10 @@ export function agentStream(o: { convId?: string; message: string; projectId?: s
             return { ...parseJson<Record<string, unknown>>(r.text), ...Object.fromEntries(Object.entries(args).filter(([, v]) => v !== "" && v !== undefined)) };
           } catch { return args; }
         };
-        await say("Reply to the user's latest message in natural, friendly language. If they asked you to make or do something, briefly acknowledge and outline the steps you'll take (1–4 short sentences) — the tools run automatically right after you, so never ask for confirmation or say ready?. If it's a question you can answer from the conversation and tool results, answer it fully. If something essential is truly missing, ask ONE short clarifying question. No JSON, no CALL lines.");
+        await say("Reply to the user's latest message in natural, friendly language. If they asked you to make or do something, briefly acknowledge and outline the steps you will take (1–3 short sentences) and do NOT state any results yet — the tools run automatically right after you, so never ask for confirmation or say ready?. If it's a question you can answer from the conversation and tool results, answer it fully. If something essential is truly missing, ask ONE short clarifying question. No JSON, no CALL lines.");
         const last = conv.turns[conv.turns.length - 1]?.content || "";
-        let steps = /\?\s*$/.test(last) && last.length < 300 && !/\b(I'll|I will|let me|let's)\b/i.test(last) ? [] : await plan();
+        const isQ = /\?\s*$/.test(o.message) && /^\s*(which|what|how|why|who|when|where|did|does|do|is|are|was|were|can you tell|tell me|explain|summari[sz]e)\b/i.test(o.message) && !/\b(research|browse|watch|search|look up|find out|check|trending|latest|right now|youtube|desktop)\b/i.test(o.message);
+        let steps = isQ ? [] : /\?\s*$/.test(last) && last.length < 300 && !/\b(I'll|I will|let me|let's)\b/i.test(last) ? [] : await plan();
         let ran = 0;
         if (steps.length) emit({ type: "plan", steps: steps.map((x) => x.tool) });
         while (steps.length && ran < 14 && !conv.abort) {
@@ -176,11 +177,11 @@ export function agentStream(o: { convId?: string; message: string; projectId?: s
           const said = conv.interrupts.splice(0);
           if (said.length) { for (const u of said) conv.turns.push({ role: "user", content: `(said while you were working) ${u}`, at: now() }); if (!conv.abort) { await say("The user just said something while you were working. Respond briefly and naturally, saying how you'll adjust. No JSON."); steps = await plan(); } }
           else if (!ok && steps.length) { steps = await plan(); }
-          if (!steps.length && !conv.abort && ran < 14) {
+          if (!steps.length && !conv.abort && ran < 14 && !isQ) {
             const req = [...conv.turns].reverse().find((t) => t.role === "user" && !t.content.startsWith("(said"))?.content || "";
             const tried = conv.turns.slice(-30).filter((t) => t.role === "tool" && !t.ok).map((t) => t.tool!);
             const nx = nextStage(conv.projectId ? db.getProject(conv.projectId) : undefined, req, tried);
-            if (nx) { steps = [{ tool: nx, args: nx === "write_script" ? { instruction: req } : {} }]; continue; } const more = (await plan()).filter((x) => !conv.turns.some((t) => t.role === "tool" && t.ok && t.tool === x.tool && !["edit_shot", "fix_continuity", "edit_video", "research"].includes(x.tool))); if (more.length) { steps = more; emit({ type: "plan", steps: steps.map((x) => x.tool) }); } }
+            if (nx) { steps = [{ tool: nx, args: nx === "write_script" ? { instruction: req } : {} }]; continue; } const more = (await plan()).filter((x) => !conv.turns.some((t) => t.role === "tool" && t.ok && t.tool === x.tool && !["edit_shot", "fix_continuity", "edit_video"].includes(x.tool))); if (more.length) { steps = more; emit({ type: "plan", steps: steps.map((x) => x.tool) }); } }
         }
         if (ran) await say(conv.abort ? "You were stopped by the user. Summarise briefly what was done and what's left. No JSON." : "All steps are done. Give the user a short conversational summary of what you did and what you found/made (cite concrete results), and suggest a next step. No JSON, no CALL lines.");
         if (conv.abort) emit({ type: "status", text: "Stopped." });
