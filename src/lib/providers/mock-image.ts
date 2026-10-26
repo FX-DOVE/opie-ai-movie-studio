@@ -28,7 +28,7 @@ export async function mockImage(o: { prompt: string; aspect: string; outFile: st
     `drawbox=x=0:y=0:w=iw:h=ih:color=black@0.25:t=fill`,
     `drawtext=${font}textfile=${head}:fontcolor=white@0.95:fontsize=${fs1 + 6}:x=(w-tw)/2:y=h*0.12`,
     `drawtext=${font}textfile=${body}:fontcolor=white@0.92:fontsize=${fs1}:line_spacing=${Math.round(fs1 / 2)}:x=(w-tw)/2:y=(h-th)/2`,
-    `drawtext=${font}text='DEMO MODE · add a Meta key for Muse Image':fontcolor=white@0.6:fontsize=${Math.round(fs1 * 0.7)}:x=(w-tw)/2:y=h*0.9`,
+    `drawtext=${font}text='DEMO FRAME · ReelForge Studio':fontcolor=white@0.6:fontsize=${Math.round(fs1 * 0.7)}:x=(w-tw)/2:y=h*0.9`,
   ].join(",");
   await ffmpeg(["-f", "lavfi", "-i", `gradients=s=${w}x${h}:c0=${pal[0]}:c1=${pal[1]}:c2=${pal[2]}:n=3:seed=${seed % 100000}:speed=0`, "-frames:v", "1", "-vf", vf, o.outFile]);
   fs.rmSync(tmp, { recursive: true, force: true });

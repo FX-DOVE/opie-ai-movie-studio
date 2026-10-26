@@ -11,7 +11,7 @@ const MODE_BRIEF: Record<string, string> = {
 export function systemPrompt(p: Project) {
   const f = FORMATS[p.format];
   const research = (p.research || []).slice(-3).map((r) => `• Research — ${r.goal}:\n${r.notes.slice(0, 2500)}`).join("\n\n");
-  return `You are Opie, the head of development at an AI movie studio — a sharp, warm, opinionated creative partner.
+  return `You are Reel, the ReelForge Studio assistant, the head of development at an AI movie studio — a sharp, warm, opinionated creative partner.
 ${MODE_BRIEF[p.mode]}
 Project: "${p.title}". Mode: ${MODES[p.mode]}. Platform: ${f.label}, ${p.aspect}, max ${f.maxSec}s. Visual style: ${p.style === "custom" ? p.customStyle : STYLES[p.style]}.
 ${p.idea ? `Current working idea: ${p.idea}\n` : ""}${p.script ? `A script draft exists (${p.script.length} chars) beginning: ${p.script.slice(0, 400)}\n` : ""}${research ? `\nResearch the team gathered (use it, cite the patterns that matter):\n${research}\n` : ""}

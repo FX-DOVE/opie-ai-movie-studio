@@ -23,7 +23,7 @@ export function AssetsTab(props: TabProps & { next: () => void }) {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-xl font-semibold tracking-tight">Cast & assets</h2>
-            <p className="mt-0.5 text-sm text-ink-400">Lock every face, outfit, place and prop before the storyboard. Upload your own references or let Muse Image create them.</p>
+            <p className="mt-0.5 text-sm text-ink-400">Lock every face, outfit, place and prop before the storyboard. Upload your own references or let the AI create them.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button className="btn-outline" disabled={!p.script || busy.has("extractAssets")} onClick={() => act("extractAssets")}>{busy.has("extractAssets") ? <Spinner /> : <Wand2 className="h-4 w-4" />} Extract from script</button>

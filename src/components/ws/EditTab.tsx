@@ -30,7 +30,7 @@ export function EditTab({ p, act, busy, patch }: TabProps & { patch: (b: Partial
               <div className={`relative mx-auto bg-black ${portrait ? "max-w-[380px]" : ""}`} style={{ aspectRatio: ratio(p.aspect) }}>
                 {r.status === "done" && r.url ? <video key={r.url} src={r.url} controls playsInline className="absolute inset-0 h-full w-full" /> : (
                   <div className="absolute inset-0 grid place-items-center p-6 text-center">
-                    {rendering ? <div className="w-full max-w-xs space-y-3"><Spinner className="mx-auto h-7 w-7" /><p className="text-sm text-ink-300">{r.message}</p><div className="h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full bg-gradient-to-r from-brand-500 to-sky-glow transition-all" style={{ width: `${r.progress}%` }} /></div></div>
+                    {rendering ? <div className="w-full max-w-xs space-y-3"><Spinner className="mx-auto h-7 w-7" /><p className="text-sm text-ink-300">{r.message}</p><div className="h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full bg-brand-500 transition-all" style={{ width: `${r.progress}%` }} /></div></div>
                       : r.status === "error" ? <p className="text-sm text-red-300">Render failed: {r.message}</p>
                       : <p className="text-sm text-ink-400">Assemble your film to preview it here.</p>}
                   </div>
@@ -81,7 +81,7 @@ export function EditTab({ p, act, busy, patch }: TabProps & { patch: (b: Partial
               <div><span className="label flex items-center gap-1.5"><Subtitles className="h-3.5 w-3.5" />Subtitles</span><Segmented value={p.subtitles ? "on" : "off"} onChange={(v) => patch({ subtitles: v === "on" })} options={[{ value: "on", label: "Burned in" }, { value: "off", label: "Off" }]} /></div>
             </div>
             {r.review && (
-              <div className="panel p-5"><span className="label">Muse review of the cut</span><p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-300">{r.review}</p></div>
+              <div className="panel p-5"><span className="label">AI review of the cut</span><p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-300">{r.review}</p></div>
             )}
             <div className="panel p-5">
               <span className="label flex items-center gap-1.5"><Wand2 className="h-3.5 w-3.5" />AI editor</span>
@@ -93,7 +93,7 @@ export function EditTab({ p, act, busy, patch }: TabProps & { patch: (b: Partial
           </aside>
         </div>
       </div>
-      <PromptBar busy={busy.has("aiEdit")} placeholder="Tell the AI editor what to change in the cut…" onSubmit={async (v) => { const res = await act("aiEdit", { prompt: v }); if (res?.ok) act("render"); }} hint="Changes apply to the timeline, then Opie re-renders automatically." />
+      <PromptBar busy={busy.has("aiEdit")} placeholder="Tell the AI editor what to change in the cut…" onSubmit={async (v) => { const res = await act("aiEdit", { prompt: v }); if (res?.ok) act("render"); }} hint="Changes apply to the timeline, then ReelForge re-renders automatically." />
     </>
   );
 }

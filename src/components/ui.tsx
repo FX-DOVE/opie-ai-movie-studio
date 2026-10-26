@@ -6,13 +6,23 @@ export function Spinner({ className = "h-4 w-4" }: { className?: string }) {
   return <Loader2 className={`${className} animate-spin`} />;
 }
 
+export function LogoMark({ className = "h-7 w-7" }: { className?: string }) {
+  // a film reel whose lower-right spoke is cut away into a forward "play" notch
+  return (
+    <svg viewBox="0 0 32 32" className={className} aria-hidden>
+      <circle cx="16" cy="16" r="14.5" fill="none" stroke="currentColor" strokeWidth="2" className="text-brand-500" />
+      <g className="fill-white/90"><circle cx="16" cy="8.6" r="2.6" /><circle cx="9" cy="13.5" r="2.6" /><circle cx="23" cy="13.5" r="2.6" /><circle cx="11.6" cy="21.8" r="2.6" /></g>
+      <path d="M18.6 18.2v8.2l6.4-4.1z" className="fill-brand-500" />
+      <circle cx="16" cy="16" r="1.3" className="fill-white/60" />
+    </svg>
+  );
+}
+
 export function Logo({ small = false }: { small?: boolean }) {
   return (
-    <span className="inline-flex items-center gap-2 font-semibold tracking-tight">
-      <span className={`grid place-items-center rounded-lg bg-gradient-to-br from-brand-500 to-sky-glow ${small ? "h-7 w-7" : "h-8 w-8"}`}>
-        <svg viewBox="0 0 24 24" className="h-4 w-4 fill-white"><path d="M8 5.5v13l10-6.5z" /></svg>
-      </span>
-      {!small && <span className="text-[15px]">Opie <span className="text-ink-400 font-normal">Studio</span></span>}
+    <span className="inline-flex items-center gap-2.5">
+      <LogoMark className={small ? "h-7 w-7" : "h-7 w-7"} />
+      {!small && <span className="text-[15px] font-semibold tracking-[-0.01em]">ReelForge<span className="ml-1 font-normal text-ink-400">Studio</span></span>}
     </span>
   );
 }
@@ -76,6 +86,6 @@ export function Segmented<T extends string>({ value, options, onChange }: { valu
 export function SourceBadge({ source }: { source?: string }) {
   if (!source) return null;
   const map: Record<string, string> = { meta: "bg-sky-500/15 text-sky-300", mock: "bg-amber-500/15 text-amber-300", upload: "bg-emerald-500/15 text-emerald-300" };
-  const label: Record<string, string> = { meta: "Muse", mock: "Demo", upload: "Upload" };
+  const label: Record<string, string> = { meta: "AI", mock: "Demo", upload: "Upload" };
   return <span className={`badge ${map[source] || "bg-sky-500/15 text-sky-300"}`}>{label[source] || source}</span>;
 }

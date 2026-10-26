@@ -140,7 +140,7 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
           <input className="input mt-3" placeholder="Title (optional)" value={title} onChange={(e) => setTitle(e.target.value)} />
           {start === "idea" && <textarea className="input mt-2 min-h-24" placeholder="e.g. A Lagos akara seller discovers her fiancé has a secret family in Abuja" value={idea} onChange={(e) => setIdea(e.target.value)} />}
           {start === "script" && <textarea className="input screenplay mt-2 min-h-40 text-[13px]" placeholder={"TITLE: ...\n\nINT. LOCATION - NIGHT\nAction...\n\nCHARACTER\nDialogue"} value={script} onChange={(e) => setScript(e.target.value)} />}
-          {start === "brainstorm" && <p className="mt-2 text-sm text-ink-400">You’ll land in the script room with Muse ready to brainstorm.</p>}
+          {start === "brainstorm" && <p className="mt-2 text-sm text-ink-400">You’ll land in the script room with the writer ready to brainstorm.</p>}
         </div>
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button className="btn-ghost h-11" onClick={onClose}>Cancel</button>

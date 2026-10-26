@@ -269,7 +269,7 @@ function mockStoryboard(p: Project): { scenes: { heading: string; summary: strin
 
 export async function buildStoryboard(p: Project) {
   const { data, source } = await structured<{ scenes: { heading: string; summary: string; shots: PlanShot[] }[] }>(
-    `You are Opie's AI director (Muse Wonder). ${ctx(p)} Break the screenplay into a shot list for an AI video pipeline that uses a START frame and an END frame per shot (the end frame of one shot should flow into the next). For each shot give: description (what we see at the start), end (what we see at the end), camera (shot size + movement), speaker+dialogue OR narration, durationSec (3-8), assets (names from the asset list that must appear). Respect the production bible.\n\nASSETS:\n${p.assets.map((a) => `${a.kind}: ${a.name}`).join("\n")}\n\nReturn {"scenes":[{"heading","summary","shots":[...]}]}.`,
+    `You are ReelForge's AI director (Muse Wonder). ${ctx(p)} Break the screenplay into a shot list for an AI video pipeline that uses a START frame and an END frame per shot (the end frame of one shot should flow into the next). For each shot give: description (what we see at the start), end (what we see at the end), camera (shot size + movement), speaker+dialogue OR narration, durationSec (3-8), assets (names from the asset list that must appear). Respect the production bible.\n\nASSETS:\n${p.assets.map((a) => `${a.kind}: ${a.name}`).join("\n")}\n\nReturn {"scenes":[{"heading","summary","shots":[...]}]}.`,
     p.script,
     () => mockStoryboard(p),
     getConfig("META_AGENT_MODEL"),

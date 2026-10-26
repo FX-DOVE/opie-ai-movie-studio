@@ -23,7 +23,7 @@ export function Admin() {
       <p className="mt-1 text-sm text-ink-400">Keys are encrypted at rest (AES-256-GCM) on the server and never sent to the browser — you only see a masked hint.</p>
       {data && (
         <div className="mt-4 flex flex-wrap gap-2">
-          {[["Meta Muse", data.status.meta], ["Video engine", data.status.video], ["YouTube API", data.status.youtube]].map(([l, v]) => <span key={String(l)} className={`badge ${v ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}`}>{String(l)}: {v ? "live" : "demo"}</span>)}
+          {[["Meta models", data.status.meta], ["Video engine", data.status.video], ["YouTube API", data.status.youtube]].map(([l, v]) => <span key={String(l)} className={`badge ${v ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}`}>{String(l)}: {v ? "live" : "demo"}</span>)}
           <span className="badge bg-sky-500/15 text-sky-300">TTS: {String(data.status.tts)}</span>
         </div>
       )}

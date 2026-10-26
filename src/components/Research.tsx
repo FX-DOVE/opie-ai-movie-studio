@@ -96,7 +96,7 @@ export function Research() {
 
   return (
     <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10">
-      <div className="flex flex-wrap items-center gap-2"><StatusPill />{s && <span className="badge bg-sky-500/10 text-sky-300"><Bot className="h-3 w-3" />{s.provider}</span>}</div>
+      <div className="flex flex-wrap items-center gap-2"><StatusPill /></div>
       <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Virtual desktop</h1>
       <p className="mt-1 max-w-3xl text-sm text-ink-400">Its live screen opens in the <b className="text-ink-200">computer</b> window (top-right). A research agent with its own Chromium browser. Each step it looks at a screenshot and the page’s accessibility tree, then decides to navigate, click, type, scroll, read transcripts or sample video frames — and writes notes straight into your project’s brainstorm.</p>
 
@@ -173,7 +173,7 @@ export function Research() {
         <div className="panel mt-5 p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <span className="flex items-center gap-2 font-semibold"><NotebookPen className="h-4 w-4 text-brand-400" />Research notes</span>
-            {s?.notes && <span className="text-[11px] text-ink-500">by {s.provider}</span>}
+            
             <div className="flex flex-wrap gap-2 sm:ml-auto">
               {s?.savedToProject && s.projectId ? <Link className="btn-primary" href={`/studio/${s.projectId}?brainstorm=1`}><Send className="h-4 w-4" />Brainstorm with these notes</Link>
                 : s?.notes && projects.length > 0 && <>

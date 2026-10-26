@@ -17,8 +17,8 @@ export function StatusPill() {
   if (!s) return null;
   const live = s.llm && s.llm !== "demo";
   return (
-    <span className={`badge ${live ? "bg-sky-500/15 text-sky-300" : "bg-amber-500/15 text-amber-300"}`} title={live ? `AI brain: ${s.llm}${s.meta ? "" : " (fallback — add a Meta key for Muse)"}` : "No AI key — demo mode"}>
-      <span className={`h-1.5 w-1.5 rounded-full ${live ? "bg-sky-300" : "bg-amber-300"}`} />{live ? (s.meta ? "Muse live" : `${s.llm} live`) : "Demo mode"}
+    <span className={`badge ${live ? "bg-emerald-500/10 text-emerald-300" : "bg-amber-500/15 text-amber-300"}`} title={live ? "AI is online" : "No AI key — demo mode"}>
+      <span className={`h-1.5 w-1.5 rounded-full ${live ? "bg-emerald-300" : "bg-amber-300"}`} />{live ? "AI online" : "Demo mode"}
     </span>
   );
 }

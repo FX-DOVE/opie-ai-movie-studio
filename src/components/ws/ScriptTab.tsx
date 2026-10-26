@@ -72,7 +72,7 @@ export function ScriptTab({ p, act, busy, toast, setP, openBrainstorm, next }: T
             {!text && view === "read" ? null : null}
             {view === "write" || !text ? (
               <textarea ref={ta} value={text} onChange={(e) => setText(e.target.value)} spellCheck={false}
-                placeholder={"Write or paste your screenplay — or describe your idea in the bar below and Muse will write it.\n\nTITLE: The Akara Girl\n\nINT. MARKET STALL - DAWN\nADA (24, red ankara, gold wristwatch) fans the fire.\n\nADA\nFirst customer gets it hot."}
+                placeholder={"Write or paste your screenplay — or describe your idea in the bar below and the AI will write it.\n\nTITLE: The Akara Girl\n\nINT. MARKET STALL - DAWN\nADA (24, red ankara, gold wristwatch) fans the fire.\n\nADA\nFirst customer gets it hot."}
                 className="screenplay min-h-[60dvh] w-full resize-y rounded-2xl border border-white/[0.07] bg-ink-900 p-5 sm:p-8 text-[13.5px] leading-relaxed text-white/90 outline-none focus:border-brand-400/40" />
             ) : (
               <article className="screenplay mx-auto rounded-2xl border border-white/[0.07] bg-[#f6f4ee] px-5 py-8 text-[13.5px] leading-relaxed text-neutral-900 shadow-2xl sm:px-14 sm:py-12">
@@ -99,7 +99,7 @@ export function ScriptTab({ p, act, busy, toast, setP, openBrainstorm, next }: T
 
         <Brainstorm p={p} setP={setP} act={act} toast={toast} open={chatOpen} onScript={() => { setView("read"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
       </div>
-      <PromptBar busy={writing} placeholder={p.script ? "Tell Muse how to revise the script… (e.g. add a twist in scene 2, make Ada angrier)" : "Describe your idea and Muse will write the screenplay…"}
+      <PromptBar busy={writing} placeholder={p.script ? "Tell the writer how to revise the script… (e.g. add a twist in scene 2, make Ada angrier)" : "Describe your idea and the AI will write the screenplay…"}
         hint={writing ? "Writing your script in the background — you can leave this page, it keeps going…" : "Enter to send · Shift+Enter for a new line"}
         onSubmit={async (v) => { const r = await act("writeScript", { prompt: v }); if (r?.ok) { setView("read"); toast((r.result as { source: string })?.source === "mock" ? "Script drafted (demo mode)" : `Script written by ${(r.result as { source: string }).source}`); } }} />
     </>

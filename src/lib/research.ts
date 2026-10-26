@@ -232,7 +232,7 @@ const TASK_BRIEF: Record<Task, (s: Session) => string> = {
   custom: (s) => s.goal,
 };
 
-const AGENT_SYS = `You are Opie's research agent operating a real Chromium browser for a film studio. Each turn you get a screenshot (when supported), the page URL/title, a numbered list of visible interactive elements, and visible text.
+const AGENT_SYS = `You are ReelForge's research agent operating a real Chromium browser for a film studio. Each turn you get a screenshot (when supported), the page URL/title, a numbered list of visible interactive elements, and visible text.
 Reply with ONLY a JSON object: {"thought": "short reasoning", "action": {...}} where action is one of:
 {"type":"navigate","url":"https://..."}
 {"type":"click","id":12}

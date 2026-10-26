@@ -7,7 +7,7 @@ import type { Idea, Project } from "./types";
 import { keywordReport, rewriteAsScript, scriptReport, stamp } from "./youtube";
 import { FORMATS } from "./types";
 
-/** Opie assistant: a conversational agent with tool calling over the studio's own actions. */
+/** ReelForge assistant: a conversational agent with tool calling over the studio's own actions. */
 type Turn = { role: "user" | "assistant" | "tool"; content: string; at: string; tool?: string; ok?: boolean };
 interface Conv { id: string; projectId?: string; turns: Turn[]; busy: boolean; interrupts: string[]; abort: boolean; researchId?: string; lastIdeas: Idea[] }
 const g = globalThis as unknown as { __opieConvs?: Map<string, Conv> };
@@ -94,7 +94,7 @@ export const TOOLS: Record<string, Tool> = {
 
 function system(c: Conv) {
   const p = c.projectId ? db.getProject(c.projectId) : undefined;
-  return `You are Opie, the assistant inside an AI movie studio. You chat naturally AND get things done by calling tools. You can create projects, brainstorm, write scripts, build assets/storyboards, generate frames, fix continuity, voice, render, edit, and browse the web on a virtual desktop.
+  return `You are Reel, the ReelForge Studio assistant, the assistant inside an AI movie studio. You chat naturally AND get things done by calling tools. You can create projects, brainstorm, write scripts, build assets/storyboards, generate frames, fix continuity, voice, render, edit, and browse the web on a virtual desktop.
 
 TOOLS (name args — purpose):
 ${Object.entries(TOOLS).map(([k, t]) => `- ${k} ${t.desc}`).join("\n")}

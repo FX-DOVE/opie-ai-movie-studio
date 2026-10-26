@@ -102,7 +102,7 @@ export function Brainstorm({ p, setP, act, toast, open, onScript }: { p: Project
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
         {shown.length === 0 && !live && (
           <div className="space-y-3">
-            <p className="text-sm text-ink-400">Throw out a topic, feeling or half-idea. Opie pitches loglines, hooks, beat sheets and characters as cards — pick one and it writes the full script.{research.length ? " Your research notes are included as context." : ""}</p>
+            <p className="text-sm text-ink-400">Throw out a topic, feeling or half-idea. ReelForge pitches loglines, hooks, beat sheets and characters as cards — pick one and it writes the full script.{research.length ? " Your research notes are included as context." : ""}</p>
             <div className="flex flex-col gap-1.5">{(STARTERS[p.mode] || STARTERS.drama).map((s) => <button key={s} className="chip justify-start text-left" onClick={() => send(s)}><Sparkles className="h-3 w-3 shrink-0" />{s}</button>)}</div>
           </div>
         )}
@@ -114,13 +114,12 @@ export function Brainstorm({ p, setP, act, toast, open, onScript }: { p: Project
           <div key={i} className="mr-2 space-y-2.5">
             <div className="rounded-2xl bg-white/[0.04] px-3.5 py-2.5 text-sm leading-relaxed text-ink-300"><Md text={m.content} /></div>
             {m.ideas?.map((idea, k) => <IdeaCard key={k} idea={idea} busy={writing} onUse={() => use(idea)} onWrite={() => write(idea)} />)}
-            {m.provider && <p className="pl-1 text-[10.5px] text-ink-500">answered by <span className={m.provider === "demo" ? "text-amber-300" : "text-sky-300"}>{m.provider}</span></p>}
           </div>
         ))}
         {live && (
           <div className="mr-2 rounded-2xl bg-white/[0.04] px-3.5 py-2.5 text-sm leading-relaxed text-ink-300">
             {live.text ? <Md text={live.text} /> : <span className="flex items-center gap-2 text-ink-400"><Spinner />Thinking…</span>}
-            {live.provider && <p className="mt-2 text-[10.5px] text-ink-500">streaming from <span className="text-sky-300">{live.provider}</span></p>}
+            
           </div>
         )}
         {writing && <div className="flex items-center gap-2 text-xs text-ink-400"><Spinner />Writing the full screenplay…</div>}

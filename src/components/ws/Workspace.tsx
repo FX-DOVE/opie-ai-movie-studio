@@ -85,7 +85,7 @@ export function Workspace({ id }: { id: string }) {
         <nav className="flex flex-col gap-1 p-3">
           {TABS.map((t, i) => (
             <button key={t.id} onClick={() => setTab(t.id)} className={`flex items-center gap-3 rounded-xl px-3 h-10 text-sm transition ${tab === t.id ? "bg-white/[0.08] text-white" : "text-ink-300 hover:bg-white/[0.04] hover:text-white"}`}>
-              <span className={`grid h-6 w-6 place-items-center rounded-md text-[11px] font-semibold ${tab === t.id ? "bg-gradient-to-br from-brand-500 to-sky-glow text-white" : "bg-white/[0.06]"}`}>{i + 1}</span>
+              <span className={`grid h-6 w-6 place-items-center rounded-md text-[11px] font-semibold ${tab === t.id ? "bg-brand-500 text-ink-950" : "bg-white/[0.06]"}`}>{i + 1}</span>
               <span className="flex-1 text-left">{t.label}</span>
               {counts[t.id] !== "" && <span className="text-xs text-ink-400">{counts[t.id]}</span>}
             </button>

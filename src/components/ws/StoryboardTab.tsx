@@ -23,7 +23,7 @@ export function StoryboardTab(props: TabProps & { next: () => void }) {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="text-xl font-semibold tracking-tight">Storyboard</h2>
-              <p className="mt-0.5 text-sm text-ink-400">{shots.length ? `${p.scenes.length} scenes · ${shots.length} shots · ${framed} framed${flagged ? ` · ${flagged} continuity flags` : ""}` : "Muse Wonder turns your script into a shot list with start and end frames."}</p>
+              <p className="mt-0.5 text-sm text-ink-400">{shots.length ? `${p.scenes.length} scenes · ${shots.length} shots · ${framed} framed${flagged ? ` · ${flagged} continuity flags` : ""}` : "The director agent turns your script into a shot list with start and end frames."}</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button className="btn-outline" disabled={!p.script || busy.has("buildStoryboard")} onClick={() => { if (!shots.length || confirm("Rebuild the shot list? Existing frames will be replaced.")) act("buildStoryboard"); }}>{busy.has("buildStoryboard") ? <Spinner /> : <Clapperboard className="h-4 w-4" />}{shots.length ? "Rebuild" : "Build shot list"}</button>
@@ -55,7 +55,7 @@ export function StoryboardTab(props: TabProps & { next: () => void }) {
           ))}
         </div>
       </div>
-      {open && <PromptBar busy={busy.has("frame-" + open.id)} placeholder={`Shot ${open.index + 1} (${which} frame): tell it what to change…`} onSubmit={(v) => act("frame", { shotId: open.id, which, prompt: v }, { busyKey: "frame-" + open.id })} hint="Muse Image edits the selected frame and keeps everything else identical." />}
+      {open && <PromptBar busy={busy.has("frame-" + open.id)} placeholder={`Shot ${open.index + 1} (${which} frame): tell it what to change…`} onSubmit={(v) => act("frame", { shotId: open.id, which, prompt: v }, { busyKey: "frame-" + open.id })} hint="The image model edits the selected frame and keeps everything else identical." />}
       <Drawer open={!!open} onClose={() => setOpenId(null)} title={open ? `Shot ${open.index + 1} · ${open.camera}` : ""} wide>
         {open && <ShotEditor key={open.id} sh={open} which={which} setWhich={setWhich} {...props} onDeleted={() => setOpenId(null)} />}
       </Drawer>
@@ -135,7 +135,7 @@ function ShotEditor({ sh, which, setWhich, p, act, busy, setP, toast, onDeleted 
               <button className="btn-brand h-9" disabled={busy.has("fixContinuity")} onClick={() => act("fixContinuity", { shotId: sh.id })}>{busy.has("fixContinuity") ? <Spinner /> : <Wand2 className="h-4 w-4" />} One-click fix</button>
             </div>
           )
-        ) : <p className="mt-2 text-xs text-ink-400">Muse compares this frame against the linked reference sheets (face, skin tone, hair, wardrobe, makeup, watches, props, location).</p>}
+        ) : <p className="mt-2 text-xs text-ink-400">The vision model compares this frame against the linked reference sheets (face, skin tone, hair, wardrobe, makeup, watches, props, location).</p>}
       </div>
 
       <div className="space-y-4">
