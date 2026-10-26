@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink-950: #07070a;
+  --color-ink-900: #0c0c11;
+  --color-ink-850: #111118;
+  --color-ink-800: #16161f;
+  --color-ink-700: #20202b;
+  --color-ink-600: #2c2c3a;
+  --color-ink-400: #8a8aa0;
+  --color-ink-300: #a9a9bd;
+  --color-brand-500: #6d5cff;
+  --color-brand-400: #8b7dff;
+  --color-sky-glow: #36c5ff;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono-face), ui-monospace, monospace;
+}
+
+:root { color-scheme: dark; }
+html, body { background: var(--color-ink-950); color: #ececf3; }
+body { -webkit-font-smoothing: antialiased; }
+* { scrollbar-width: thin; scrollbar-color: #2c2c3a transparent; }
+
+@utility panel { @apply rounded-2xl border border-white/[0.07] bg-ink-850; }
+@utility btn { @apply inline-flex items-center justify-center gap-2 rounded-xl px-3.5 h-9 text-sm font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none whitespace-nowrap; }
+@utility btn-primary { @apply btn bg-white text-ink-950 hover:bg-white/90; }
+@utility btn-brand { @apply btn text-white bg-gradient-to-r from-brand-500 to-sky-glow hover:brightness-110; }
+@utility btn-ghost { @apply btn text-ink-300 hover:text-white hover:bg-white/[0.06]; }
+@utility btn-outline { @apply btn border border-white/10 text-white/90 hover:bg-white/[0.06]; }
+@utility input { @apply w-full rounded-xl border border-white/10 bg-ink-900 px-3 py-2 text-sm text-white placeholder:text-ink-400 outline-none focus:border-brand-400/70 focus:ring-2 focus:ring-brand-500/20; }
+@utility label { @apply mb-1.5 block text-xs font-medium uppercase tracking-wider text-ink-400; }
+@utility chip { @apply inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 h-8 text-xs font-medium text-ink-300 hover:text-white hover:border-white/20 transition-colors whitespace-nowrap; }
+@utility chip-on { @apply border-brand-400/60 bg-brand-500/15 text-white; }
+@utility badge { @apply inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider; }
+
+.screenplay { font-family: "Courier Prime", "Courier New", var(--font-mono); }
+.shimmer { background: linear-gradient(110deg, #16161f 8%, #20202b 18%, #16161f 33%); background-size: 200% 100%; animation: sh 1.4s linear infinite; }
+@keyframes sh { to { background-position-x: -200%; } }
+.glow { background: radial-gradient(60% 50% at 50% 0%, rgba(109,92,255,.25), transparent 70%), radial-gradient(40% 40% at 80% 20%, rgba(54,197,255,.12), transparent 70%); }
+.pb-safe { padding-bottom: max(env(safe-area-inset-bottom), 0px); }
