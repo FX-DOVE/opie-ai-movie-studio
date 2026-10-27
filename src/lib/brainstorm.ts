@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { maybeAutoResearch } from "./autoresearch";
 import { chatP, chatStream, llmLive, parseJson, type Msg } from "./providers/meta";
 import { FORMATS, MODES, STYLES, type ChatMsg, type Idea, type Project } from "./types";
 
@@ -46,18 +47,21 @@ function mockReply(p: Project, message: string): string {
 }
 
 /** Streams the assistant reply; persists the user + assistant turns (with provider and parsed ideas). */
-export function brainstormStream(p: Project, message: string): ReadableStream<Uint8Array> {
+export function brainstormStream(p: Project, message: string, autoResearch = false): ReadableStream<Uint8Array> {
   const enc = new TextEncoder();
   const history: Msg[] = p.brainstorm.filter((m, i, arr) => m.kind !== "note" && !(m.role === "assistant" && (!m.provider || m.provider === "demo")) && !(m.role === "user" && arr[i + 1]?.role === "assistant" && (!arr[i + 1].provider || arr[i + 1].provider === "demo"))).slice(-16).map((m) => ({ role: m.role, content: m.content + (m.ideas?.length ? `\n[ideas pitched: ${m.ideas.map((i) => i.title).join("; ")}]` : "") }));
   const userAt = new Date().toISOString();
   return new ReadableStream({
     async start(ctrl) {
-      const send = (o: unknown) => ctrl.enqueue(enc.encode(JSON.stringify(o) + "\n"));
+      let closed = false;
+      const send = (o: unknown) => { if (!closed) try { ctrl.enqueue(enc.encode(JSON.stringify(o) + "\n")); } catch { /* client gone */ } };
+      // auto-research runs alongside the reply: once per concrete topic, on Reel's computer
+      const auto = (autoResearch ? maybeAutoResearch({ message, projectId: p.id, scope: "p:" + p.id, context: `${p.mode} · ${p.title}${p.idea ? " · " + p.idea.slice(0, 160) : ""}` }).then((r) => { if (r) send({ type: "research", ...r }); return r; }) : Promise.resolve(null)).catch(() => null);
       const meta: { provider?: string; model?: string } = {};
       let full = "";
       try {
         if (llmLive()) {
-          for await (const t of chatStream([{ role: "system", content: systemPrompt(p) }, ...history, { role: "user", content: message }], { temperature: 0.85 }, meta)) {
+          for await (const t of chatStream([{ role: "system", content: systemPrompt(p) }, ...history, { role: "user", content: message }], { temperature: 0.85, task: "director" }, meta)) {
             if (!full) send({ type: "provider", provider: meta.provider, model: meta.model });
             full += t; send({ type: "delta", text: t });
           }
@@ -72,18 +76,19 @@ export function brainstormStream(p: Project, message: string): ReadableStream<Ui
         if (!ideas.length && llmLive() && /title|logline|idea|\n\s*(1[.)]|-|\*)/i.test(full) && full.length > 300) {
           send({ type: "status", text: "Shaping idea cards…" });
           try {
-            const r = await chatP([{ role: "system", content: 'Extract the story/ad ideas pitched in the text (or, if it is a scene, the idea behind it) into JSON {"ideas":[{"title":string,"logline":string (one sentence),"hook":string,"beats":[string],"characters":[{"name":string,"description":string}]}]}. Fill gaps sensibly from the text. If no ideas were pitched return {"ideas":[]}.' }, { role: "user", content: full.slice(0, 6000) }], { json: true, temperature: 0.1 });
+            const r = await chatP([{ role: "system", content: 'Extract the story/ad ideas pitched in the text (or, if it is a scene, the idea behind it) into JSON {"ideas":[{"title":string,"logline":string (one sentence),"hook":string,"beats":[string],"characters":[{"name":string,"description":string}]}]}. Fill gaps sensibly from the text. If no ideas were pitched return {"ideas":[]}.' }, { role: "user", content: full.slice(0, 6000) }], { json: true, temperature: 0.1, task: "director" });
             ideas = (parseJson<{ ideas: Idea[] }>(r.text).ideas || []).filter(realIdea).slice(0, 4);
           } catch { /* keep text only */ }
         }
         clean = clean.trim();
         const msg: ChatMsg = { role: "assistant", content: clean, ideas, provider: meta.provider ? `${meta.provider}${meta.model ? ` · ${meta.model}` : ""}` : undefined, at: new Date().toISOString() };
         await db.update(p.id, (x) => { x.brainstorm.push({ role: "user", content: message, at: userAt }, msg); });
+        await Promise.race([auto, new Promise((r) => setTimeout(r, 8000))]);
         send({ type: "done", message: msg });
       } catch (e) {
         send({ type: "error", error: (e as Error).message.slice(0, 500) });
       }
-      ctrl.close();
+      closed = true; ctrl.close();
     },
   });
 }

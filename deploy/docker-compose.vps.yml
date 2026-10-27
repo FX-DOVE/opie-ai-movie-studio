@@ -2,8 +2,10 @@
 services:
   desk:
     build: ./desk
-    ports: ["172.17.0.1:3420:3000"]
-    environment: { DESK_IDLE_MIN: "5", DESK_FPS: "4" }
+    # 3420 → app (Next.js); 3421 → desk WebSocket stream (Caddy routes only /desk/ws there)
+    ports: ["172.17.0.1:3420:3000", "172.17.0.1:3421:7900"]
+    environment: { DESK_IDLE_MIN: "5", DESK_FPS: "10", DESK_QV: "9", TZ: "Africa/Lagos" }
+    init: true
     volumes: ["desk-home:/home/reel/home"]
     shm_size: 256m
     restart: unless-stopped
@@ -16,6 +18,7 @@ services:
     environment: { DATA_DIR: /data }
     volumes: ["app-data:/data"]
     depends_on: [desk]
+    init: true
     restart: unless-stopped
     mem_limit: 700m
     cpus: 0.9

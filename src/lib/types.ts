@@ -15,7 +15,18 @@ export interface Asset {
   voice?: string; // TTS voice for characters
   images: ImageVersion[];
   activeImage?: string;
+  /** structured reference spec expanded by the Director (exact colours/hex, scale, materials, label text…) */
+  spec?: Record<string, unknown>;
+  /** locked bible entry: spec + approved image are frozen and injected into every shot */
+  locked?: boolean;
+  /** approved reference (AI sheets are auto-approved when the review passes; uploads need a manual Approve) */
+  approved?: boolean;
+  refState?: "checking" | "fixing" | "passed" | "fixed" | "attention";
+  refIssues?: string[];
 }
+/** Back-compat: older assets with an image and no flag count as approved; drafts with nothing don't count. */
+export const isApproved = (a: Asset) => !!a.activeImage && (a.approved ?? true);
+export const isDraft = (a: Asset) => !a.images.length && !a.description.trim();
 
 export interface Shot {
   id: string;
@@ -32,8 +43,11 @@ export interface Shot {
   activeStart?: string;
   activeEnd?: string;
   clipUrl?: string;
+  clipProvider?: string;
+  /** video job (queue with retries + provider fallback) */
+  clipJob?: { state: "queued" | "running" | "done" | "failed"; provider?: string; attempt?: number; progress?: number; error?: string; estUsd?: number; updatedAt?: string };
   audioUrl?: string;
-  continuity?: { ok: boolean; issues: string[]; checkedAt: string; source: string };
+  continuity?: { ok: boolean; issues: string[]; checkedAt: string; source: string; fix?: string; state?: "checking" | "fixing" | "passed" | "fixed" | "attention"; attempts?: number };
   trimStart?: number;
   trimEnd?: number;
 }
@@ -41,7 +55,7 @@ export interface Shot {
 export interface Scene { id: string; heading: string; summary: string; shots: Shot[] }
 
 export interface Idea { title: string; logline: string; hook?: string; beats?: string[]; characters?: { name: string; description: string }[] }
-export interface ChatMsg { role: "user" | "assistant"; content: string; at: string; provider?: string; ideas?: Idea[]; kind?: "note" }
+export interface ChatMsg { role: "user" | "assistant"; content: string; at: string; provider?: string; ideas?: Idea[]; kind?: "note" | "research" }
 export interface ResearchNote { id: string; goal: string; notes: string; at: string; provider?: string }
 
 export interface RenderJob { status: "idle" | "queued" | "running" | "done" | "error"; progress: number; message: string; url?: string; updatedAt: string; review?: string }
@@ -56,6 +70,8 @@ export interface Project {
   style: VisualStyle;
   customStyle?: string;
   outputType: OutputType;
+  /** Video mode: provider id from Admin → Video providers ("auto" = fallback order) */
+  videoProvider?: string;
   idea: string;
   script: string;
   brainstorm: ChatMsg[];

@@ -5,6 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ArrowUp, Check, ChevronLeft, Loader2, Paperclip, RotateCw, Square, Volume2, VolumeX, Wrench, X } from "lucide-react";
 import { Mascot } from "./Mascot";
+import { autoResearchPref } from "@/lib/autopref";
+import { ResearchBar, type ResearchJob } from "./ResearchBar";
 
 type Item =
   | { k: "user"; text: string }
@@ -23,6 +25,14 @@ export function AgentChat({ projectId, onSession, className = "", starters }: { 
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [thinking, setThinking] = useState(false);
+  const [rjob, setRjob] = useState<ResearchJob | null>(null);
+  const researchDone = async (j: ResearchJob, st: string) => {
+    setRjob(null);
+    const r = await fetch(`/api/research/${j.id}?since=99999`).then((x) => x.ok ? x.json() : null).catch(() => null);
+    if (r?.notes) setItems((x) => [...x, { k: "ai", text: r.notes, provider: r.provider }]);
+    else if (st !== "done") setItems((x) => [...x, { k: "info", text: `Research on “${j.topic}” ${st}` }]);
+    if (r?.projectId) router.refresh();
+  };
   const conv = useRef<string | undefined>(undefined);
   const end = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -42,7 +52,7 @@ export function AgentChat({ projectId, onSession, className = "", starters }: { 
       let open = false;
       const push = (f: (x: Item[]) => Item[]) => setItems(f);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await ndjson("/api/agent", { convId: conv.current, message: msg, projectId }, (e: any) => {
+      await ndjson("/api/agent", { convId: conv.current, message: msg, projectId, autoResearch: autoResearchPref() }, (e: any) => {
           if (e.type === "conv") { conv.current = e.id; sessionStorage.setItem("opie-conv", e.id); }
           else if (e.type === "thinking") setThinking(true);
           else if (e.type === "delta") { setThinking(false); if (!e.text) return; push((x) => { const last = x[x.length - 1]; if (open && last?.k === "ai") return [...x.slice(0, -1), { ...last, text: last.text + e.text }]; open = true; return [...x, { k: "ai", text: e.text.replace(/^\s+/, ""), live: true }]; }); }
@@ -52,6 +62,7 @@ export function AgentChat({ projectId, onSession, className = "", starters }: { 
           else if (e.type === "tool_args") push((x) => x.map((it) => it.k === "tool" && it.id === e.id ? { ...it, args: e.args } : it));
           else if (e.type === "plan") push((x) => [...x, { k: "info", text: `Plan: ${e.steps.map((t: string) => LABEL[t] || t).join(" → ")}` }]);
           else if (e.type === "tool_end") push((x) => x.map((it) => it.k === "tool" && it.id === e.id ? { ...it, ok: e.ok, summary: e.summary } : it));
+          else if (e.type === "research") setRjob({ id: e.id, topic: e.topic });
           else if (e.type === "session") { showDesktop(e.id); onSession?.(e.id); }
           else if (e.type === "project") push((x) => [...x, { k: "info", text: `Created project “${e.title}” — /studio/${e.id}` }]);
           else if (e.type === "error") push((x) => [...x, { k: "info", text: "⚠ " + e.error }]);
@@ -89,6 +100,7 @@ export function AgentChat({ projectId, onSession, className = "", starters }: { 
         <div ref={end} />
       </div>
       <div className="pb-safe border-t border-white/[0.06] bg-ink-950 px-3 pt-2">
+        {rjob && <div className="mb-2"><ResearchBar job={rjob} onDone={(st) => researchDone(rjob, st)} /></div>}
         {files.length > 0 && <div className="mb-2 flex flex-wrap gap-1.5">{files.map((f, j) => <span key={j} className="chip h-7">📎 {f.name}<button aria-label="Remove attachment" onClick={() => setFiles((x) => x.filter((_, k) => k !== j))}><X className="h-3 w-3" /></button></span>)}</div>}
         <div className="mb-2 flex items-end gap-2">
           <input ref={fileRef} type="file" multiple hidden onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />

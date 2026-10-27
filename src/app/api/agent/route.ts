@@ -6,6 +6,6 @@ export async function POST(req: Request) {
   const b = await req.json().catch(() => ({}));
   const message = String(b.message || "").trim().slice(0, 4000);
   if (!message) return Response.json({ error: "message required" }, { status: 400 });
-  const { stream } = agentStream({ convId: b.convId ? String(b.convId) : undefined, message, projectId: b.projectId ? String(b.projectId) : undefined });
+  const { stream } = agentStream({ convId: b.convId ? String(b.convId) : undefined, message, projectId: b.projectId ? String(b.projectId) : undefined, autoResearch: b.autoResearch !== false });
   return streamJob(stream);
 }

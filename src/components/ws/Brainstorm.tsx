@@ -5,6 +5,8 @@ import { Check, FileText, Lightbulb, MessageSquareText, NotebookPen, RotateCcw, 
 import type { ChatMsg, Idea, Project } from "@/lib/types";
 import { Spinner } from "../ui";
 import type { Act } from "./common";
+import { autoResearchPref, setAutoResearchPref } from "@/lib/autopref";
+import { ResearchBar, type ResearchJob } from "../ResearchBar";
 
 const STARTERS: Record<string, string[]> = {
   drama: ["Pitch 3 Nollywood family-drama hooks for Shorts", "A betrayal story with a twist in the last 5 seconds", "Give me a romance with a ticking clock"],
@@ -52,6 +54,12 @@ export function Brainstorm({ p, setP, act, toast, open, onScript }: { p: Project
   const [live, setLive] = useState<{ text: string; provider?: string } | null>(null);
   const [writing, setWriting] = useState(false);
   const abort = useRef<AbortController | null>(null);
+  const RK = `rf-auto-${p.id}`;
+  const [autoR, setAutoR] = useState(true);
+  useEffect(() => setAutoR(autoResearchPref()), []);
+  const [rjob, setRjobS] = useState<ResearchJob | null>(null);
+  const setRjob = (j: ResearchJob | null) => { setRjobS(j); try { if (j) sessionStorage.setItem(RK, JSON.stringify(j)); else sessionStorage.removeItem(RK); } catch { /* */ } };
+  useEffect(() => { try { const j = sessionStorage.getItem(RK); if (j) setRjobS(JSON.parse(j)); } catch { /* */ } }, [RK]);
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [p.brainstorm.length, live?.text]);
 
@@ -63,10 +71,11 @@ export function Brainstorm({ p, setP, act, toast, open, onScript }: { p: Project
     try {
       let acc = ""; let prov: string | undefined;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await ndjson(`/api/projects/${p.id}/brainstorm`, { message: text }, (ev: any) => {
+      await ndjson(`/api/projects/${p.id}/brainstorm`, { message: text, autoResearch: autoResearchPref() }, (ev: any) => {
         if (ev.type === "provider") prov = ev.provider + (ev.model ? ` · ${ev.model}` : "");
         if (ev.type === "delta") acc += ev.text;
         if (ev.type === "error") throw new Error(ev.error);
+        if (ev.type === "research") { setRjob({ id: ev.id, topic: ev.topic }); return; }
         setLive({ text: acc.replace(/```ideas[\s\S]*$/, "\n_…shaping idea cards…_"), provider: prov });
       }, ac.signal);
       await reload();
@@ -106,7 +115,13 @@ export function Brainstorm({ p, setP, act, toast, open, onScript }: { p: Project
             <div className="flex flex-col gap-1.5">{(STARTERS[p.mode] || STARTERS.drama).map((s) => <button key={s} className="chip justify-start text-left" onClick={() => send(s)}><Sparkles className="h-3 w-3 shrink-0" />{s}</button>)}</div>
           </div>
         )}
-        {shown.map((m, i) => m.kind === "note" ? (
+        {shown.map((m, i) => m.kind === "research" ? (
+          <div key={i} className="mr-2 space-y-2 rounded-2xl border border-emerald-400/20 bg-emerald-500/[0.06] px-3.5 py-2.5 text-sm leading-relaxed text-ink-300">
+            <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-emerald-300"><NotebookPen className="h-3 w-3" />Research from Reel’s computer</p>
+            <Md text={m.content} />
+            {i === shown.length - 1 && !live && <button className="chip" onClick={() => send("Using that research, pitch 3 ideas with strong hooks.")}><Sparkles className="h-3 w-3" />Pitch ideas from this research</button>}
+          </div>
+        ) : m.kind === "note" ? (
           <p key={i} className="text-center text-[11px] text-emerald-300/80">{m.content}</p>
         ) : m.role === "user" ? (
           <div key={i} className="ml-8 whitespace-pre-wrap rounded-2xl bg-brand-500/20 px-3.5 py-2.5 text-sm text-white">{m.content}</div>
@@ -122,10 +137,14 @@ export function Brainstorm({ p, setP, act, toast, open, onScript }: { p: Project
             
           </div>
         )}
+        {rjob && <ResearchBar job={rjob} onDone={(st) => { setRjob(null); reload(); if (st === "done") toast("Research added to the brainstorm"); }} />}
         {writing && <div className="flex items-center gap-2 text-xs text-ink-400"><Spinner />Writing the full screenplay…</div>}
         <div ref={end} />
       </div>
       <div className="border-t border-white/[0.06] p-3">
+        <label className="mb-2 flex w-fit cursor-pointer items-center gap-1.5 text-[11px] text-ink-400" title="When you name a concrete topic, Reel researches it on YouTube on its computer (once per topic)">
+          <input type="checkbox" className="accent-brand-500" checked={autoR} onChange={(e) => { setAutoR(e.target.checked); setAutoResearchPref(e.target.checked); }} />Auto-research topics on YouTube
+        </label>
         <div className="flex gap-2">
           <textarea rows={1} className="input min-h-10 resize-none py-2.5" placeholder="Brainstorm an idea…" value={msg} onChange={(e) => setMsg(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} />
           {live ? <button className="btn-outline h-10 w-10 px-0" onClick={() => abort.current?.abort()} aria-label="Stop"><Square className="h-4 w-4" /></button>

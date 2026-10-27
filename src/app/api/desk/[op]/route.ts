@@ -6,7 +6,9 @@ const pass = async (r: Response) => new Response(r.status === 204 ? null : await
 const down = () => Response.json({ state: "unavailable", error: "The desktop service isn’t running." }, { status: 503 });
 
 export async function GET(_: Request, { params }: { params: Promise<{ op: string }> }) {
-  const { op } = await params; if (!["status", "frame"].includes(op)) return Response.json({ error: "not found" }, { status: 404 });
+  const { op } = await params;
+  if (op === "editable") return Response.json({ text: await chromeEditable() });
+  if (!["status", "frame"].includes(op)) return Response.json({ error: "not found" }, { status: 404 });
   try { return await pass(await desk("/" + op, undefined, 5000)); } catch { return down(); }
 }
 export async function POST(req: Request, { params }: { params: Promise<{ op: string }> }) {

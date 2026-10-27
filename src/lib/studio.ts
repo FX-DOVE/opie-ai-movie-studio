@@ -3,11 +3,13 @@ import path from "node:path";
 import { nanoid } from "nanoid";
 import { db, mediaPath, mediaUrl, projectMediaDir } from "./db";
 import { generateImage, llmLive, structured, visionCheck } from "./providers/meta";
-import { llmLabel } from "./config";
+import { cropBoxes, samBoxes, samOn } from "./providers/sam";
+import { getConfig, llmLabel } from "./config";
+import { withStep } from "./usage";
+import { characterSheetPrompt, locationSheetPrompt, mockSpec, propSheetPrompt, specLine, specSchema, type CharacterSpec, type LocationSpec, type PropSpec } from "./refsheet";
 import { parseScenes, NARRATOR_RE } from "./screenplay";
-import { getConfig } from "./config";
 import { EDGE_VOICES } from "./providers/tts";
-import { FORMATS, MODES, STYLES, type Asset, type ChatMsg, type ImageVersion, type Project, type Scene, type Shot } from "./types";
+import { FORMATS, MODES, STYLES, isApproved, isDraft, type Asset, type ChatMsg, type ImageVersion, type Project, type Scene, type Shot } from "./types";
 
 const now = () => new Date().toISOString();
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -127,6 +129,7 @@ export async function writeScript(p: Project, instruction: string) {
       const s = mockScript(p, instruction);
       return { title: parseScenes(s).title, script: s };
     },
+    undefined, "director",
   );
   const sv = data as unknown as Record<string, unknown>;
   const script = [sv.script, sv.screenplay, sv.text, sv.content].find((v) => typeof v === "string" && v.trim().length > 40) as string | undefined;
@@ -178,6 +181,7 @@ export async function extractAssets(p: Project) {
     `You are a film production designer and continuity supervisor. ${ctx(p)} Extract every recurring Character, Location and Prop from the screenplay. For characters, "description" covers face, age, skin tone, hair and build; "details" covers wardrobe colours, makeup/lipstick, watches, jewellery. For locations, "details" is the time of day and lighting. For props, "details" covers material and colour. Return {"assets":[{"kind":"character|location|prop","name","description","details"}]}.`,
     p.script,
     () => ({ assets: mockAssets(p) }),
+    undefined, "director",
   );
   await db.update(p.id, (x) => {
     const keep = new Map(x.assets.map((a) => [a.kind + ":" + a.name.toLowerCase(), a]));
@@ -193,29 +197,103 @@ export async function extractAssets(p: Project) {
 export function buildBible(p: Project) {
   const sec = (k: Asset["kind"], t: string) => {
     const a = p.assets.filter((x) => x.kind === k);
-    return a.length ? `${t}:\n${a.map((x) => `- ${x.name}: ${x.description}${x.details ? ` | ${k === "location" ? "Time/light" : k === "character" ? "Wardrobe & accessories" : "Details"}: ${x.details}` : ""}`).join("\n")}` : "";
+    return a.length ? `${t}:\n${a.map((x) => x.spec ? `- ${specLine(x)}` : `- ${x.name}: ${x.description}${x.details ? ` | ${k === "location" ? "Time/light" : k === "character" ? "Wardrobe & accessories" : "Details"}: ${x.details}` : ""}`).join("\n")}` : "";
   };
-  return [`STYLE: ${styleText(p)}; aspect ${p.aspect}`, sec("character", "CHARACTERS (lock face, skin tone, hair, wardrobe colours, makeup, watches)"), sec("location", "LOCATIONS"), sec("prop", "PROPS")].filter(Boolean).join("\n\n");
+  return [`STYLE: ${styleText(p)}; aspect ${p.aspect}`, sec("character", "CHARACTERS (lock face, skin tone, hair, wardrobe colours, makeup, watches)"), sec("location", "LOCATIONS"), sec("prop", "PROPS (lock object, colours, materials, exact label text)")].filter(Boolean).join("\n\n");
 }
 
 function newVersion(url: string, prompt: string, source: ImageVersion["source"]): ImageVersion {
   return { id: nanoid(8), url, prompt, createdAt: now(), source };
 }
 
-export async function assetImage(p: Project, assetId: string, extra = "") {
+/** Director expands an asset into a structured, locked-able spec (props first-class: scale, materials, hex colours, exact text). */
+export async function expandSpec(p: Project, assetId: string) {
   const a = p.assets.find((x) => x.id === assetId);
   if (!a) throw new Error("asset not found");
-  const prompt = a.kind === "character"
-    ? `Character reference sheet of ${a.name}: front view, three-quarter view and profile on a neutral background, full body and face close-up. ${a.description}. Wardrobe: ${a.details}. ${styleText(p)}. ${extra}`
-    : a.kind === "location"
-    ? `Establishing reference of ${a.name}, ${a.details}. ${a.description}. No people. ${styleText(p)}. ${extra}`
-    : `Product/prop reference of ${a.name} on a clean backdrop, multiple angles. ${a.description} ${a.details}. ${styleText(p)}. ${extra}`;
+  if (a.locked && a.spec) return a.spec;
+  const first = a.name.toLowerCase().split(/\s+/)[0];
+  const lines = p.script.split("\n").filter((l) => l.toLowerCase().includes(first)).slice(0, 25).join("\n");
+  const loc = p.assets.filter((x) => x.kind === "location").map((x) => x.name).join(", ");
+  const role = a.kind === "prop" ? `a film prop master${p.mode === "ad" ? " and packshot art director — this may be the hero product, so label text accuracy is critical" : ""}` : a.kind === "character" ? "a casting director and costume designer" : "a production designer";
+  const { data } = await structured<Record<string, unknown>>(
+    `You are ${role}. ${ctx(p)} Expand the ${a.kind} into a precise, camera-ready continuity spec that an image model can reproduce identically in every shot. Be concrete: real measurements, exact hex colours, materials, wear. Brand-neutral (no real brands). If the object carries text, give the exact spelling; otherwise return an empty text array. Infer era/region from the story (e.g. Lagos 2020s). Locations available: ${loc || "n/a"}. Return JSON exactly in this shape: ${specSchema(a.kind)}`,
+    `Script lines mentioning it:\n${lines || p.script.slice(0, 2500)}\n\n${a.kind}: ${a.name}\nCurrent notes: ${a.description} | ${a.details}`,
+    () => mockSpec(p, a) as unknown as Record<string, unknown>,
+    undefined, "director",
+  );
+  await db.update(p.id, (x) => { const t = x.assets.find((y) => y.id === assetId)!; t.spec = data; x.bible = buildBible(x); });
+  return data;
+}
+
+export function sheetPrompt(p: Project, a: Asset, notes = "") {
+  const spec = (a.spec || mockSpec(p, a)) as unknown;
+  if (a.kind === "prop") {
+    const loc = p.assets.find((x) => x.kind === "location" && (String((spec as PropSpec).context || "").toLowerCase().includes(x.name.toLowerCase().split(/\s+/)[0]))) || p.assets.find((x) => x.kind === "location");
+    return propSheetPrompt(p, a, spec as PropSpec, loc ? `${loc.name}${loc.details ? ` (${loc.details})` : ""}` : undefined, notes);
+  }
+  return a.kind === "character" ? characterSheetPrompt(p, a, spec as CharacterSpec, notes) : locationSheetPrompt(p, a, spec as LocationSpec, notes);
+}
+
+/** Generate (or regenerate with notes) an asset's reference sheet from its structured spec. */
+export async function assetImage(p: Project, assetId: string, extra = "") {
+  let a = p.assets.find((x) => x.id === assetId);
+  if (!a) throw new Error("asset not found");
+  if (a.locked) throw new Error(`${a.name} is locked — unlock it to regenerate.`);
+  if (!a.spec && llmLive()) { await expandSpec(p, assetId).catch(() => null); p = db.getProject(p.id)!; a = p.assets.find((x) => x.id === assetId)!; }
+  const prompt = sheetPrompt(p, a, extra);
   const prev = a.activeImage ? a.images.find((i) => i.id === a.activeImage) : undefined;
+  const refs: string[] = [];
+  if (extra && prev) refs.push(mediaPath(prev.url)); // regenerate with notes = edit of the current sheet
+  if (a.kind === "prop") { const loc = p.assets.find((x) => x.kind === "location" && x.activeImage); const li = loc?.images.find((i) => i.id === loc.activeImage); if (li) refs.push(mediaPath(li.url)); }
   const file = path.join(projectMediaDir(p.id), `asset-${a.id}-${Date.now()}.png`);
-  const source = await generateImage({ prompt, aspect: a.kind === "location" ? p.aspect : "1:1", outFile: file, refs: extra && prev ? [mediaPath(prev.url)] : [], label: `${a.kind}: ${a.name}`, style: p.style });
+  const source = await generateImage({ prompt, aspect: p.aspect, outFile: file, refs, label: `${a.kind}: ${a.name}`, style: p.style });
   const v = newVersion(mediaUrl(file), prompt, source);
-  await db.update(p.id, (x) => { const t = x.assets.find((y) => y.id === assetId)!; t.images.push(v); t.activeImage = v.id; });
+  await db.update(p.id, (x) => { const t = x.assets.find((y) => y.id === assetId)!; t.images.push(v); t.activeImage = v.id; t.approved = false; t.refState = undefined; t.refIssues = undefined; });
   return v;
+}
+
+/**
+ * Review an AI reference sheet against its spec (Spark vision). Pass → auto-approved. Fail → regenerate with the
+ * reviewer's notes (Muse Image edit of the sheet), up to CONTINUITY_RETRIES; still failing → "needs attention" (manual Approve).
+ */
+export async function reviewReference(pid: string, assetId: string) {
+  const max = Math.max(0, Math.min(5, parseInt(getConfig("CONTINUITY_RETRIES") || "2")));
+  const upd = (patch: Partial<Asset>) => db.update(pid, (x) => { const t = x.assets.find((y) => y.id === assetId); if (t) Object.assign(t, patch); });
+  let tries = 0;
+  for (;;) {
+    const p = db.getProject(pid)!; const a = p.assets.find((x) => x.id === assetId);
+    const img = a?.images.find((i) => i.id === a.activeImage);
+    if (!a || !img) return;
+    if (img.source === "upload") return upd({ approved: false, refState: undefined });
+    if (!llmLive() || img.source === "mock") return upd({ approved: true, refState: tries ? "fixed" : "passed", refIssues: [] });
+    await upd({ refState: "checking" });
+    const v = await withStep(pid, "references", () => visionCheck(mediaPath(img.url), [], buildBible(p), `This image is the REFERENCE SHEET for the ${a.kind} "${a.name}". Check it against its locked spec: ${specLine(a)}. ${a.kind === "prop" ? "Required panels: front, three-quarter, side, back, detail close-up and an in-context still with a scale reference; label text spelled exactly; no extra objects, no warped text, no hands covering it, no watermark." : a.kind === "character" ? "The same person in every panel, exact wardrobe colours and accessories." : "Set pieces, palette and lighting as specified, no people."} Ignore panel label typography. Judge like a continuity supervisor, not a spec auditor: set ok=false ONLY for identity-breaking problems that would make it read as a different ${a.kind} in the shots — wrong main colours or materials, wrong object type or silhouette, a missing signature feature, a different person between panels, misspelled brand/label text, extra people or watermarks. Do NOT fail for exact measurements, centimetre positions, item counts (e.g. how many pieces of food), hole counts, minor construction details or layout of secondary set dressing; mention those only if serious.`)).catch(() => ({ ok: true, issues: [] as string[], fix_prompt: "" }));
+    if (v.ok) return upd({ approved: true, refState: tries ? "fixed" : "passed", refIssues: [] });
+    if (tries >= max) return upd({ approved: false, refState: "attention", refIssues: (v.issues || []).slice(0, 4) });
+    tries++;
+    await upd({ refState: "fixing", refIssues: (v.issues || []).slice(0, 4) });
+    await withStep(pid, "references", () => assetImage(db.getProject(pid)!, assetId, v.fix_prompt || (v.issues || []).join("; ")));
+  }
+}
+
+/** After references are made: review + auto-approve them, then move on to the storyboard when every reference is approved. */
+export async function autocreateAndAdvance(pid: string) {
+  for (const a of db.getProject(pid)!.assets.filter((a) => !a.activeImage && !isDraft(a))) await assetImage(db.getProject(pid)!, a.id);
+  for (const a of db.getProject(pid)!.assets.filter((a) => a.activeImage && a.approved === false && a.refState !== "attention")) await reviewReference(pid, a.id);
+  const p = db.getProject(pid)!;
+  const ready = p.assets.filter((a) => !isDraft(a)).every(isApproved);
+  let advanced = false;
+  if (ready && !p.scenes.some((s) => s.shots.length)) { await withStep(pid, "shots", () => buildStoryboard(db.getProject(pid)!)); advanced = true; }
+  return { ready, advanced, attention: p.assets.filter((a) => a.refState === "attention").map((a) => a.name) };
+}
+
+/** Lock = freeze spec + approved image as the bible entry used by every shot (and by the continuity review). */
+export async function lockAsset(p: Project, assetId: string, locked: boolean) {
+  const a = p.assets.find((x) => x.id === assetId);
+  if (!a) throw new Error("asset not found");
+  if (locked && !a.activeImage) throw new Error("Approve an image before locking.");
+  if (locked && !a.spec) await expandSpec(p, assetId);
+  await db.update(p.id, (x) => { const t = x.assets.find((y) => y.id === assetId)!; t.locked = locked; x.bible = buildBible(x); });
 }
 
 export async function autofillAsset(p: Project, assetId: string) {
@@ -227,8 +305,9 @@ export async function autofillAsset(p: Project, assetId: string) {
       description: a.kind === "character" ? `${a.description.replace(/\.$/, "")}; expressive eyes, natural skin texture, the same hairstyle in every shot` : a.kind === "location" ? `${a.description}; practical lamps, layered depth, lived-in textures` : `${a.description}; distinctive silhouette and finish`,
       details: a.details || (a.kind === "location" ? "Golden hour" : "Signature colours locked for continuity"),
     }),
+    undefined, "director",
   );
-  await db.update(p.id, (x) => { const t = x.assets.find((y) => y.id === assetId)!; t.description = data.description; t.details = data.details; x.bible = buildBible(x); });
+  await db.update(p.id, (x) => { const t = x.assets.find((y) => y.id === assetId)!; if (t.locked) return; t.description = data.description; t.details = data.details; t.spec = undefined; x.bible = buildBible(x); });
 }
 
 // ───────────────────────── Storyboard ─────────────────────────
@@ -272,7 +351,7 @@ export async function buildStoryboard(p: Project) {
     `You are ReelForge's AI director (Muse Wonder). ${ctx(p)} Break the screenplay into a shot list for an AI video pipeline that uses a START frame and an END frame per shot (the end frame of one shot should flow into the next). For each shot give: description (what we see at the start), end (what we see at the end), camera (shot size + movement), speaker+dialogue OR narration, durationSec (3-8), assets (names from the asset list that must appear). Respect the production bible.\n\nASSETS:\n${p.assets.map((a) => `${a.kind}: ${a.name}`).join("\n")}\n\nReturn {"scenes":[{"heading","summary","shots":[...]}]}.`,
     p.script,
     () => mockStoryboard(p),
-    getConfig("META_AGENT_MODEL"),
+    undefined, "director",
   );
   const byName = (n: string) => p.assets.find((a) => a.name.toLowerCase() === n.toLowerCase())?.id;
   let idx = 0;
@@ -300,7 +379,8 @@ function shotPrompt(p: Project, sh: Shot, which: "start" | "end", change?: strin
   return [
     `${sh.camera}. ${what}.`,
     sh.dialogue ? `${sh.speaker} is speaking: "${sh.dialogue}".` : "",
-    assets.length ? `Keep continuity: ${assets.map((a) => `${a.name} (${a.description}; ${a.details})`).join("; ")}.` : "",
+    assets.length ? `Keep continuity (locked bible — must match the attached reference sheets exactly): ${assets.map(specLine).join(" || ")}.` : "",
+    assets.some((a) => a.kind === "prop") ? "Props must keep their exact colours, materials, markings and label spelling; no duplicate props, no warped text." : "",
     `${styleText(p)}, ${p.aspect} composition.`,
     change ? `Change: ${change}. Keep everything else identical.` : "",
   ].filter(Boolean).join(" ");
@@ -341,11 +421,27 @@ export async function checkContinuity(p: Project, shotId: string) {
   const sh = findShot(p, shotId);
   const frame = sh.startFrame.find((v) => v.id === sh.activeStart);
   const assets = p.assets.filter((a) => sh.assetIds.includes(a.id));
-  let result: { ok: boolean; issues: string[] }; let source: string = "mock";
+  let result: { ok: boolean; issues: string[]; fix?: string }; let source: string = "mock";
   if (llmLive() && frame) {
     const refs = assets.map((a) => ({ name: a.name, img: a.images.find((i) => i.id === a.activeImage) })).filter((r) => r.img).map((r) => ({ name: r.name, file: mediaPath(r.img!.url) }));
-    result = await visionCheck(mediaPath(frame.url), refs, p.bible, sh.description);
-    source = llmLabel();
+    // optional SAM 3.1 person segmentation: isolate each person in this frame so the Spark vision reviewer can compare a crop per person against the bible + approved references (identity consistency itself comes from bible + refs + review)
+    const chars = assets.filter((a) => a.kind === "character"); let samNote = ""; const crops: string[] = []; const samIssues: string[] = [];
+    if (samOn() && chars.length) {
+      try {
+        const boxes = (await samBoxes(mediaPath(frame.url), "person")).filter((b) => b.c === undefined || b.c >= 0.4);
+        crops.push(...await cropBoxes(mediaPath(frame.url), boxes, Math.min(3, chars.length + 1)));
+        samNote = ` SAM 3.1 segmented ${boxes.length} person(s) in this frame; the extra images after the reference sheets are crops isolating each person — compare each one's face/wardrobe to the matching character.`;
+        if (boxes.length < chars.length) samIssues.push(`Only ${boxes.length} of ${chars.length} expected characters (${chars.map((c) => c.name).join(", ")}) are visible in the frame.`);
+      } catch { /* SAM optional */ }
+    }
+    const shots = allShots(p); const pi = shots.findIndex((s) => s.id === shotId); const prev = pi > 0 ? shots[pi - 1] : undefined;
+    const pf = prev ? (prev.endFrame.find((v) => v.id === prev.activeEnd) || prev.startFrame.find((v) => v.id === prev.activeStart)) : undefined;
+    const prevRef = pf ? [{ name: "Previous shot (state to carry over)", file: mediaPath(pf.url) }] : [];
+    const v = await visionCheck(mediaPath(frame.url), [...refs.map((r) => ({ ...r, name: `${r.name} reference sheet` })), ...prevRef, ...crops.map((f, i) => ({ name: `Person crop ${i + 1}`, file: f }))], buildBible(p), `${sh.description}${sh.speaker ? ` — ${sh.speaker}: "${sh.dialogue}"` : ""}. Assets that must appear: ${assets.map((a) => a.name).join(", ") || "none listed"}.${prev ? ` Previous shot: ${prev.description}.` : ""}${samNote}`);
+    for (const f of crops) fs.promises.unlink(f).catch(() => {});
+    const issues = [...samIssues, ...(v.issues || [])].slice(0, 6);
+    result = { ok: !!v.ok && !issues.length, issues, fix: v.fix_prompt ? String(v.fix_prompt).slice(0, 600) : undefined };
+    source = llmLabel("review") + (samOn() ? " + SAM 3.1" : "");
   } else {
     const issues: string[] = [];
     if (!frame) issues.push("No start frame generated yet.");
@@ -358,7 +454,7 @@ export async function checkContinuity(p: Project, shotId: string) {
     if (sh.endFrame.length && !sh.activeEnd) issues.push("End frame not selected.");
     result = { ok: issues.length === 0, issues };
   }
-  await db.update(p.id, (x) => { findShot(x, shotId).continuity = { ...result, checkedAt: now(), source }; });
+  await db.update(p.id, (x) => { const t = findShot(x, shotId); t.continuity = { ...result, checkedAt: now(), source, state: t.continuity?.state, attempts: t.continuity?.attempts }; });
   return result;
 }
 
@@ -370,7 +466,56 @@ export async function fixContinuity(p: Project, shotId: string) {
   let fresh = db.getProject(p.id)!;
   for (const a of fresh.assets.filter((a) => findShot(fresh, shotId).assetIds.includes(a.id) && !a.activeImage)) await assetImage(fresh, a.id);
   fresh = db.getProject(p.id)!;
-  const issues = sh.continuity?.issues?.join("; ");
-  await generateFrame(fresh, shotId, "start", issues ? `fix continuity: ${issues}` : undefined);
+  // one targeted revise: the reviewer's fix prompt (or the flagged issues), anchored on the current frame + approved references
+  const issues = sh.continuity?.fix || sh.continuity?.issues?.join("; ");
+  await generateFrame(fresh, shotId, "start", issues ? `targeted continuity revise — ${issues}. Keep every approved detail exactly as is: same face, skin tone, hair, wardrobe, props, location, framing, camera and lighting; change only what is listed` : undefined);
   return checkContinuity(db.getProject(p.id)!, shotId);
 }
+
+// ───────────────────────── Automatic continuity (review → fix → re-check) ─────────────────────────
+const g = globalThis as unknown as { __rfAuto?: Map<string, Set<string>> };
+const queue = (g.__rfAuto ||= new Map());
+const setState = (pid: string, shotId: string, patch: Partial<NonNullable<Shot["continuity"]>>) => db.update(pid, (x) => { try { const t = findShot(x, shotId); t.continuity = { ok: false, issues: [], checkedAt: now(), source: "", ...(t.continuity || {}), ...patch }; } catch { /* shot deleted */ } });
+
+/**
+ * Review shots against the locked bibles; auto-fix failures with a Muse Image edit (approved refs + corrected prompt),
+ * re-check, up to CONTINUITY_RETRIES. Then Passed / Fixed / Needs attention. One runner per project; extra shots queue.
+ */
+export async function autoContinuity(pid: string, shotIds?: string[]) {
+  if (getConfig("AUTO_CONTINUITY") === "off") return;
+  const p0 = db.getProject(pid); if (!p0) return;
+  const ids = shotIds || allShots(p0).filter((s) => s.activeStart).map((s) => s.id);
+  const running = queue.get(pid);
+  // mark first (awaited) so the response the UI gets already shows "Checking"; the review itself runs in the background
+  for (const id of ids) await setState(pid, id, { state: "checking", attempts: 0 }).catch(() => {});
+  if (running) { ids.forEach((i) => running.add(i)); return; }
+  const q = new Set(ids); queue.set(pid, q);
+  void (async () => {
+    try {
+      while (q.size) {
+        const shotId = q.values().next().value as string; q.delete(shotId);
+        await reviewOne(pid, shotId).catch(async (e) => setState(pid, shotId, { state: "attention", ok: false, issues: [`Review failed: ${(e as Error).message.slice(0, 160)}`] }));
+      }
+    } finally { queue.delete(pid); }
+  })();
+}
+async function reviewOne(pid: string, shotId: string) {
+  const max = Math.max(0, Math.min(5, parseInt(getConfig("CONTINUITY_RETRIES") || "2")));
+  let p = db.getProject(pid); if (!p) return;
+  if (!findShot(p, shotId).activeStart) return;
+  await setState(pid, shotId, { state: "checking", attempts: 0 });
+  let r = await withStep(pid, "continuity", () => checkContinuity(p!, shotId));
+  let tries = 0;
+  while (!r.ok && tries < max) {
+    tries++;
+    await setState(pid, shotId, { state: "fixing", attempts: tries });
+    p = db.getProject(pid)!;
+    const sh = findShot(p, shotId);
+    const fix = sh.continuity?.fix || r.fix || r.issues.join("; ");
+    await withStep(pid, "fix", () => generateFrame(p!, shotId, "start", `continuity fix (attempt ${tries}) — ${fix}. Keep every approved detail exactly as in the reference sheets: same faces, skin tones, hair, wardrobe colours, props (colours, markings, exact label text), location and lighting; change only what is listed`));
+    await setState(pid, shotId, { state: "checking", attempts: tries });
+    r = await withStep(pid, "continuity", () => checkContinuity(db.getProject(pid)!, shotId));
+  }
+  await setState(pid, shotId, { state: r.ok ? (tries ? "fixed" : "passed") : "attention", attempts: tries });
+}
+export const continuityRunning = (pid: string) => queue.has(pid);

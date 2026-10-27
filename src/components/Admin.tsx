@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { Eye, EyeOff, KeyRound, Lock, LogOut, Save, ShieldCheck } from "lucide-react";
 import { Spinner, useToast } from "./ui";
+import { VideoProvidersAdmin } from "./VideoProvidersAdmin";
 
 type Field = { key: string; label: string; secret: boolean; group: string; help?: string; options?: string[]; default?: string; value: string; source: string };
 type Data = { fields: Field[]; status: Record<string, boolean | string> };
@@ -28,6 +29,8 @@ export function Admin() {
         </div>
       )}
       {data && [...new Set(data.fields.map((f) => f.group))].map((g) => <Group key={g} title={g} fields={data.fields.filter((f) => f.group === g)} onSaved={(d) => { setData(d); toast("Saved securely"); }} />)}
+      {data && <VideoProvidersAdmin toast={toast} />}
+      {data && <UsagePanel />}
       {node}
     </div>
   );
@@ -48,6 +51,7 @@ function Group({ title, fields, onSaved }: { title: string; fields: Field[]; onS
       <div className="mb-4 flex items-center justify-between gap-3"><h2 className="font-semibold">{title}</h2>
         <button className="btn-primary" disabled={!dirty || busy} onClick={save}>{busy ? <Spinner /> : <Save className="h-4 w-4" />}Save</button></div>
       {title.startsWith("Storage") && <R2Help />}
+      {TESTS[title] && <div className="mb-4 flex flex-wrap gap-2">{TESTS[title].map((t) => <TestBtn key={t.kind} {...t} />)}</div>}
       <div className="grid gap-4 md:grid-cols-2">
         {fields.map((f) => (
           <label key={f.key} className="block">
@@ -65,6 +69,45 @@ function Group({ title, fields, onSaved }: { title: string; fields: Field[]; onS
           </label>
         ))}
       </div>
+    </section>
+  );
+}
+
+const TESTS: Record<string, { kind: string; label: string }[]> = {
+  "Meta Model API": [{ kind: "meta", label: "Test Meta key" }, { kind: "contributor", label: "Check contributor access" }, { kind: "computer", label: "Test computer use" }, { kind: "compare", label: "Compare Spark vs Wonder" }],
+  "Baseten (Director model)": [{ kind: "baseten", label: "Test Baseten key" }],
+  "AI brain (provider chain)": [{ kind: "fallback", label: "Test fallback (OmniRoute)" }],
+  "Research agent": [{ kind: "computer", label: "Test computer use" }],
+};
+function TestBtn({ kind, label }: { kind: string; label: string }) {
+  const [busy, setBusy] = useState(false); const [res, setRes] = useState<{ ok: boolean; message: string } | null>(null);
+  const run = async () => { setBusy(true); setRes(null); try { setRes(await (await fetch("/api/admin/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind }) })).json()); } catch (e) { setRes({ ok: false, message: String(e) }); } setBusy(false); };
+  return <div className="flex min-w-0 flex-col gap-1"><button type="button" className="btn-outline h-8 w-fit text-xs" disabled={busy} onClick={run}>{busy ? <Spinner /> : null}{label}</button>
+    {res && <span className={`max-w-md whitespace-pre-line text-[11px] ${res.ok ? "text-emerald-300" : "text-amber-300"}`}>{res.ok ? "✓ " : "⚠ "}{res.message}</span>}</div>;
+}
+
+type Agg = { key: string; calls: number; in: number; cached: number; out: number; images: number; usd: number };
+function UsagePanel() {
+  const [days, setDays] = useState(7);
+  type Esc = { at: string; label: string; from: string; to: string; reason: string; outcome: string; steps: number; spark: { in: number; out: number; usd: number }; wonder: { in: number; out: number; usd: number } };
+  const [u, setU] = useState<{ total: number; byTask: Agg[]; byModel: Agg[]; escalations?: Esc[]; unpriced?: string[] } | null>(null);
+  useEffect(() => { fetch(`/api/admin/test?days=${days}`).then((r) => r.json()).then(setU).catch(() => {}); }, [days]);
+  const k = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "k" : String(n));
+  const T = ({ rows, head }: { rows: Agg[]; head: string }) => (
+    <table className="w-full text-left text-xs"><thead className="text-ink-400"><tr><th className="py-1">{head}</th><th>Calls</th><th>In (cached)</th><th>Out</th><th className="text-right">USD</th></tr></thead>
+      <tbody>{rows.map((r) => <tr key={r.key} className="border-t border-white/[0.05]"><td className="py-1 pr-2">{r.key}</td><td>{r.calls}</td><td>{k(r.in)} ({k(r.cached)})</td><td>{k(r.out)}{r.images ? ` · ${r.images} img` : ""}</td><td className="text-right">${r.usd.toFixed(4)}</td></tr>)}</tbody></table>
+  );
+  return (
+    <section className="panel mt-6 p-5 sm:p-6">
+      <div className="mb-3 flex items-center gap-3"><h2 className="font-semibold">Usage & cost</h2>
+        <select className="input h-8 w-auto text-xs" value={days} onChange={(e) => setDays(+e.target.value)}>{[1, 7, 30, 90].map((d) => <option key={d} value={d}>Last {d} day{d > 1 ? "s" : ""}</option>)}</select>
+        <span className="ml-auto text-sm text-white">${u?.total.toFixed(4) ?? "…"}</span></div>
+      <p className="mb-3 text-[11px] text-ink-400">Tokens and <b>estimated</b> cost per task and model, using the prices in Admin → Pricing (edit them to match your Meta billing page; cached input uses the cached rate). No prompts are stored.{u?.unpriced?.length ? ` Not priced (tokens only): ${u.unpriced.join(", ")}.` : ""}</p>
+      {u && (u.byTask.length ? <div className="grid gap-5 md:grid-cols-2"><T rows={u.byTask} head="Task" /><T rows={u.byModel} head="Model" /></div> : <p className="text-sm text-ink-400">No AI calls logged yet.</p>)}
+      <h3 className="mb-1 mt-5 text-sm font-semibold">Escalations (Spark → Wonder)</h3>
+      <p className="mb-2 text-[11px] text-ink-400">Each time a computer-use task was handed to the escalation model: why, how it ended, and tokens/cost spent on each model — so you can judge whether escalating actually helps.</p>
+      {u?.escalations?.length ? <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="text-ink-400"><tr><th className="py-1">When (WAT)</th><th>Task</th><th>Reason</th><th>Outcome</th><th>Steps</th><th>{"Spark in/out · $"}</th><th>{"Wonder in/out · $"}</th></tr></thead>
+        <tbody>{u.escalations.map((e, i) => <tr key={i} className="border-t border-white/[0.05] align-top"><td className="py-1 pr-2 whitespace-nowrap">{new Date(e.at).toLocaleString("en-GB", { timeZone: "Africa/Lagos", dateStyle: "short", timeStyle: "short" })}</td><td className="pr-2">{e.label}</td><td className="pr-2">{e.reason}</td><td className="pr-2">{e.outcome}</td><td>{e.steps}</td><td className="pr-2">{k(e.spark.in)}/{k(e.spark.out)} · ${e.spark.usd.toFixed(4)}</td><td>{k(e.wonder.in)}/{k(e.wonder.out)} · ${e.wonder.usd.toFixed(4)}</td></tr>)}</tbody></table></div> : <p className="text-xs text-ink-400">No escalations yet.</p>}
     </section>
   );
 }

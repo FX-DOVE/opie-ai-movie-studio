@@ -1,6 +1,7 @@
 // ReelForge desktop service: a real, light Linux desktop (Xvfb + Openbox + tint2 + PCManFM + xterm + Chromium)
 // exposed over plain HTTP: GET /status, GET /frame (latest JPEG), POST /wake, /sleep, /input. No dependencies.
 import http from "node:http";
+import crypto from "node:crypto";
 import { spawn, execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -8,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const PORT = +(process.env.DESK_PORT || 7900), DISP = process.env.DESK_DISPLAY || ":7";
-const W = 1280, H = 720, FPS = +(process.env.DESK_FPS || 5);
+const W = 1280, H = 720, FPS = +(process.env.DESK_FPS || 10), QV = +(process.env.DESK_QV || 9);
 const HOME = process.env.DESK_HOME || path.join(process.cwd(), "data", "desk-home");
 const CHROME = process.env.DESK_CHROME || "chromium";
 const CDP = +(process.env.DESK_CDP_PORT || 9333);
@@ -18,6 +19,12 @@ const env = { ...process.env, DISPLAY: DISP, HOME, XDG_CONFIG_HOME: path.join(HO
 let state = "asleep", procs = [], ff = null, frame = null, seen = 0, control = false, err = "";
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 const sh = (cmd, args, o = {}) => new Promise((res) => execFile(cmd, args, { env, timeout: 8000, ...o }, (e, out) => res(e ? "" : String(out))));
+const scaleJpeg = (buf, w, q) => new Promise((ok, bad) => {
+  const p = spawn("ffmpeg", ["-loglevel", "error", "-f", "mjpeg", "-i", "pipe:0", "-vf", `scale=${w}:-2:flags=area`, "-q:v", String(q), "-frames:v", "1", "-f", "mjpeg", "pipe:1"], { stdio: ["pipe", "pipe", "ignore"] });
+  const out = []; p.stdout.on("data", (d) => out.push(d)); p.on("error", bad);
+  p.on("close", (c) => (c === 0 && out.length ? ok(Buffer.concat(out)) : bad(new Error("scale failed " + c))));
+  setTimeout(() => p.kill("SIGKILL"), 5000); p.stdin.end(buf);
+});
 const bg = (cmd, args) => { const p = spawn(cmd, args, { env, cwd: HOME, stdio: "ignore", detached: true }); p.on("error", (e) => log(cmd, e.message)); procs.push(p); return p; };
 
 function setupHome() {
@@ -30,7 +37,7 @@ function setupHome() {
   de("1-files", "Files", "pcmanfm --new-win " + HOME, path.join(DIR, "icons/files.png"));
   de("2-terminal", "Terminal", "xterm -fa 'DejaVu Sans Mono' -fs 12 -bg '#0b0b0d' -fg '#e5e5e5' -geometry 100x30", path.join(DIR, "icons/terminal.png"));
   de("3-browser", "Browser", path.join(DIR, "browser.sh"), path.join(DIR, "icons/browser.png"));
-  put(".config/openbox/rc.xml", fs.readFileSync(path.join(DIR, "rc.xml"), "utf8"));
+  { const p = path.join(HOME, ".config/openbox/rc.xml"); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, fs.readFileSync(path.join(DIR, "rc.xml"), "utf8")); } // ours: always refresh
   put(".config/tint2/tint2rc", fs.readFileSync(path.join(DIR, "tint2rc"), "utf8") + ["1-files", "2-terminal", "3-browser"].map((f) => `launcher_item_app = ${path.join(HOME, "Desktop", f + ".desktop")}\n`).join(""));
   for (const d of ["Documents", "Downloads", "Projects"]) fs.mkdirSync(path.join(HOME, d), { recursive: true });
 }
@@ -63,9 +70,9 @@ function shutdown() { stopStream(); for (const p of procs) try { process.kill(-p
 
 function startStream() {
   if (ff) return;
-  ff = spawn("ffmpeg", ["-loglevel", "error", "-f", "x11grab", "-draw_mouse", "1", "-framerate", String(FPS), "-video_size", `${W}x${H}`, "-i", DISP, "-q:v", "7", "-f", "image2pipe", "-vcodec", "mjpeg", "-"], { env, stdio: ["ignore", "pipe", "pipe"] });
+  ff = spawn("ffmpeg", ["-loglevel", "error", "-f", "x11grab", "-draw_mouse", "0", "-framerate", String(FPS), "-video_size", `${W}x${H}`, "-i", DISP, "-q:v", String(QV), "-f", "image2pipe", "-vcodec", "mjpeg", "-"], { env, stdio: ["ignore", "pipe", "pipe"] });
   let buf = Buffer.alloc(0);
-  ff.stdout.on("data", (d) => { buf = Buffer.concat([buf, d]); for (;;) { const s = buf.indexOf(Buffer.from([0xff, 0xd8])); const e = buf.indexOf(Buffer.from([0xff, 0xd9]), s + 2); if (s < 0 || e < 0) break; frame = buf.subarray(s, e + 2); buf = buf.subarray(e + 2); } if (buf.length > 4e6) buf = Buffer.alloc(0); });
+  ff.stdout.on("data", (d) => { buf = Buffer.concat([buf, d]); for (;;) { const s = buf.indexOf(Buffer.from([0xff, 0xd8])); const e = buf.indexOf(Buffer.from([0xff, 0xd9]), s + 2); if (s < 0 || e < 0) break; frame = buf.subarray(s, e + 2); buf = buf.subarray(e + 2); push(frame); } if (buf.length > 4e6) buf = Buffer.alloc(0); });
   ff.stderr.on("data", (d) => log("ffmpeg", String(d).trim()));
   ff.on("exit", () => { ff = null; if (state === "awake") setTimeout(startStream, 1000); });
 }
@@ -82,6 +89,8 @@ async function input(o) {
     case "down": return xd("mousemove", X(o.x), Y(o.y), "mousedown", b);
     case "up": return xd("mousemove", X(o.x), Y(o.y), "mouseup", b);
     case "scroll": { const n = Math.min(15, Math.max(1, Math.round(Math.abs(+o.dy || 0) / 60))); if (o.x != null) await xd("mousemove", X(o.x), Y(o.y)); return xd("click", "--repeat", n, "--delay", 15, +o.dy > 0 ? 5 : 4); }
+    case "drag": { const pts = (o.path || []).slice(0, 40); if (!pts.length) return; await xd("mousemove", X(pts[0].x), Y(pts[0].y), "mousedown", b); for (const q of pts.slice(1)) await xd("mousemove", X(q.x), Y(q.y)); return xd("mouseup", b); }
+    case "hscroll": { const n = Math.min(15, Math.max(1, Math.round(Math.abs(+o.dx || 0) / 60))); if (o.x != null) await xd("mousemove", X(o.x), Y(o.y)); return xd("click", "--repeat", n, "--delay", 15, +o.dx > 0 ? 7 : 6); }
     case "type": return xd("type", "--delay", 8, "--", String(o.text || "").slice(0, 2000));
     case "key": { const k = KEYS[o.key] || String(o.key || ""); if (!/^[\w+]+$/.test(k)) return; return xd("key", "--clearmodifiers", k); }
     case "open": { const f = { files: "1-files", terminal: "2-terminal", browser: "3-browser" }[o.app]; if (!f) return; const ex = fs.readFileSync(path.join(HOME, "Desktop", f + ".desktop"), "utf8").match(/^Exec=(.*)$/m)[1]; procs.push(spawn("sh", ["-c", ex], { env, cwd: HOME, stdio: "ignore", detached: true })); return; }
@@ -89,7 +98,7 @@ async function input(o) {
 }
 /** what kind of window has focus — lets the phone decide whether to keep its keyboard up */
 async function focus() {
-  await new Promise((r) => setTimeout(r, 150));
+  await new Promise((r) => setTimeout(r, 80));
   // the focused client window (X input focus, falling back to the EWMH active window) → its WM_CLASS
   let cls = "";
   for (const cmd of ["getwindowfocus", "getactivewindow"]) {
@@ -99,10 +108,68 @@ async function focus() {
   return { cls, text: /xterm|terminal/.test(cls) };
 }
 
-setInterval(() => { if (state === "awake" && !control && Date.now() - seen > IDLE_MS) sleepNow(); }, 15000);
+
+// ---- WebSocket stream (RFC 6455, no deps): server pushes changed JPEG frames; client sends input as JSON ----
+const clients = new Set();
+function wsSend(sock, op, data) {
+  const n = data.length, h = n < 126 ? Buffer.from([0x80 | op, n]) : n < 65536 ? Buffer.from([0x80 | op, 126, n >> 8, n & 255]) : (() => { const b = Buffer.alloc(10); b[0] = 0x80 | op; b[1] = 127; b.writeBigUInt64BE(BigInt(n), 2); return b; })();
+  try { sock.write(h); sock.write(data); } catch {}
+}
+const wsJson = (c, o) => wsSend(c.sock, 1, Buffer.from(JSON.stringify(o)));
+function push(f) {
+  if (!clients.size) return;
+  const h = crypto.createHash("md5").update(f).digest("hex");
+  for (const c of clients) {
+    if (c.last === h) continue;                       // unchanged screen → send nothing
+    if (c.sock.writableLength > 192 * 1024) { c.drop++; continue; } // slow link → skip frames (adaptive)
+    c.last = h; seen = Date.now(); wsSend(c.sock, 2, f);
+  }
+}
+// serial input queue per client; consecutive moves collapse to the latest one
+async function pump(c) {
+  if (c.busy) return; c.busy = true;
+  while (c.q.length) {
+    let o = c.q.shift(); while (o.t === "move" && c.q[0]?.t === "move") o = c.q.shift();
+    try {
+      seen = Date.now(); if (state !== "awake") await wake();
+      await input(o);
+      if (o.id && (o.t === "click" || o.t === "up")) wsJson(c, { t: "ack", id: o.id, ...(await focus()) });
+    } catch (e) { log("ws input", e.message); }
+  }
+  c.busy = false;
+}
+function upgrade(req, sock) {
+  const key = req.headers["sec-websocket-key"];
+  if (!key || !/\/ws$/.test(new URL(req.url, "http://x").pathname)) return sock.destroy();
+  const acc = crypto.createHash("sha1").update(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest("base64");
+  sock.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${acc}\r\n\r\n`);
+  sock.setNoDelay(true);
+  const c = { sock, q: [], busy: false, last: "", drop: 0 }; clients.add(c); seen = Date.now();
+  if (state !== "awake") wake().catch(() => {}); else if (frame) push(frame);
+  wsJson(c, { t: "status", state, control });
+  let buf = Buffer.alloc(0);
+  sock.on("data", (d) => {
+    buf = Buffer.concat([buf, d]);
+    for (;;) {
+      if (buf.length < 2) break;
+      const op = buf[0] & 15, masked = buf[1] & 128; let n = buf[1] & 127, o = 2;
+      if (n === 126) { if (buf.length < 4) break; n = buf.readUInt16BE(2); o = 4; } else if (n === 127) { if (buf.length < 10) break; n = Number(buf.readBigUInt64BE(2)); o = 10; }
+      const m = masked ? buf.subarray(o, o + 4) : null; if (masked) o += 4;
+      if (buf.length < o + n) break;
+      const p = Buffer.from(buf.subarray(o, o + n)); if (m) for (let i = 0; i < p.length; i++) p[i] ^= m[i & 3];
+      buf = buf.subarray(o + n);
+      if (op === 8) { sock.end(); return; }
+      if (op === 9) { wsSend(sock, 10, p); continue; }
+      if (op === 1) { try { const j = JSON.parse(String(p)); if (j.t === "ping") wsJson(c, { t: "pong", ts: j.ts }); else if (j.t) { c.q.push(j); pump(c); } } catch {} }
+    }
+  });
+  const bye = () => clients.delete(c); sock.on("close", bye); sock.on("error", bye);
+}
+
+setInterval(() => { if (clients.size) seen = Date.now(); if (state === "awake" && !control && Date.now() - seen > IDLE_MS) sleepNow(); }, 15000);
 
 const body = (req) => new Promise((r) => { let s = ""; req.on("data", (d) => (s += d)); req.on("end", () => { try { r(JSON.parse(s || "{}")); } catch { r({}); } }); });
-http.createServer(async (req, res) => {
+const server = http.createServer(async (req, res) => {
   const json = (o, c = 200) => { res.writeHead(c, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify(o)); };
   const u = new URL(req.url, "http://x");
   try {
@@ -114,8 +181,20 @@ http.createServer(async (req, res) => {
     if (u.pathname === "/sleep") { sleepNow(); return json({ state }); }
     if (u.pathname === "/control") { control = !!o.on; return json({ control }); }
     if (u.pathname === "/input") { if (state !== "awake") await wake(); await input(o); return json({ ok: true, ...(o.t === "click" || o.t === "up" ? await focus() : {}) }); }
+    if (u.pathname === "/shot") { // a fresh frame after the screen settles (for computer-use agents)
+      if (state !== "awake") await wake(); if (!ff) startStream();
+      const t0 = Date.now(), old = frame; const wait = +(o.settle ?? 350);
+      while (Date.now() - t0 < 4000 && (!frame || frame === old || Date.now() - t0 < wait)) await new Promise((r) => setTimeout(r, 50));
+      if (!frame) return json({ error: "no frame" }, 503);
+      // optional downscale/recompress for model input (fewer image tokens): {w: 1024, q: 2..31}
+      let img = frame; const tw = Math.round(+o.w || 0);
+      if ((tw >= 320 && tw < W) || o.q) img = await scaleJpeg(frame, tw >= 320 && tw < W ? tw : W, Math.max(2, Math.min(31, +o.q || QV))).catch(() => frame);
+      res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "no-store", "Content-Length": img.length }); return res.end(img);
+    }
     if (u.pathname === "/browser") { if (state !== "awake") await wake(); await input({ t: "open", app: "browser" }); return json({ ok: true }); }
     json({ error: "not found" }, 404);
   } catch (e) { json({ error: e.message }, 500); }
-}).listen(PORT, process.env.DESK_HOST || "127.0.0.1", () => log(`desk on :${PORT} display ${DISP} home ${HOME}`));
+});
+server.on("upgrade", upgrade);
+server.listen(PORT, process.env.DESK_HOST || "127.0.0.1", () => log(`desk on :${PORT} display ${DISP} home ${HOME}`));
 for (const s of ["SIGINT", "SIGTERM"]) process.on(s, () => { shutdown(); process.exit(0); });

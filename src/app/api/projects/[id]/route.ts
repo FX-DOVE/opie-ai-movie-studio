@@ -6,7 +6,7 @@ import { buildBible } from "@/lib/studio";
 
 export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ id: string }> };
-const EDITABLE = ["title", "mode", "format", "aspect", "style", "customStyle", "outputType", "idea", "script", "narratorVoice", "music", "subtitles"] as const;
+const EDITABLE = ["title", "mode", "format", "aspect", "style", "customStyle", "outputType", "videoProvider", "idea", "script", "narratorVoice", "music", "subtitles"] as const;
 
 export async function GET(_: Request, { params }: Ctx) {
   const p = db.getProject((await params).id);

@@ -2,6 +2,7 @@ import { nanoid } from "nanoid";
 import { db } from "./db";
 import { chatP, chatStream, llmLive, parseJson, type Msg } from "./providers/meta";
 import { brainstormStream } from "./brainstorm";
+import { maybeAutoResearch } from "./autoresearch";
 import { getSession, startResearch, type Task } from "./research";
 import type { Idea, Project } from "./types";
 import { keywordReport, rewriteAsScript, scriptReport, stamp } from "./youtube";
@@ -9,7 +10,7 @@ import { FORMATS } from "./types";
 
 /** ReelForge assistant: a conversational agent with tool calling over the studio's own actions. */
 type Turn = { role: "user" | "assistant" | "tool"; content: string; at: string; tool?: string; ok?: boolean };
-interface Conv { id: string; projectId?: string; turns: Turn[]; busy: boolean; interrupts: string[]; abort: boolean; researchId?: string; lastIdeas: Idea[] }
+interface Conv { id: string; projectId?: string; turns: Turn[]; busy: boolean; interrupts: string[]; abort: boolean; researchId?: string; lastIdeas: Idea[]; autoIds?: string[] }
 const g = globalThis as unknown as { __opieConvs?: Map<string, Conv> };
 const convs = (g.__opieConvs ||= new Map<string, Conv>());
 export const getConv = (id: string) => convs.get(id);
@@ -114,7 +115,7 @@ export function interrupt(c: Conv, msg: string) {
   return "Noted — I'll factor that in after the current step.";
 }
 
-export function agentStream(o: { convId?: string; message: string; projectId?: string }): { conv: Conv; stream: ReadableStream<Uint8Array> } {
+export function agentStream(o: { convId?: string; message: string; projectId?: string; autoResearch?: boolean }): { conv: Conv; stream: ReadableStream<Uint8Array> } {
   let c = o.convId ? convs.get(o.convId) : undefined;
   if (!c) { c = { id: o.convId || nanoid(10), turns: [], busy: false, interrupts: [], abort: false, lastIdeas: [] }; convs.set(c.id, c); }
   if (o.projectId && db.getProject(o.projectId)) c.projectId = o.projectId;
@@ -126,11 +127,15 @@ export function agentStream(o: { convId?: string; message: string; projectId?: s
     return { conv, stream: new ReadableStream({ start(ctrl) { ctrl.enqueue(enc.encode(JSON.stringify({ type: "conv", id: conv.id }) + "\n" + JSON.stringify({ type: "delta", text: reply }) + "\n" + JSON.stringify({ type: "done", interrupt: true }) + "\n")); ctrl.close(); } }) };
   }
   conv.busy = true; conv.abort = false; conv.interrupts = [];
+  // fold finished auto-research summaries into the conversation so ideas build on them
+  for (const rid of conv.autoIds || []) { const rs = getSession(rid); if (rs && rs.status !== "running" && rs.status !== "paused") { if (rs.notes) conv.turns.push({ role: "assistant", content: `(Research from my computer)\n${rs.notes.slice(0, 3500)}`, at: now() }); conv.autoIds = conv.autoIds!.filter((x) => x !== rid); } }
   conv.turns.push({ role: "user", content: o.message, at: now() });
   const stream = new ReadableStream<Uint8Array>({
     async start(ctrl) {
       const emit = (x: unknown) => { try { ctrl.enqueue(enc.encode(JSON.stringify(x) + "\n")); } catch { /* client gone */ } };
       emit({ type: "conv", id: conv.id, projectId: conv.projectId });
+      const pj = conv.projectId ? db.getProject(conv.projectId) : undefined;
+      const auto = (o.autoResearch ? maybeAutoResearch({ message: o.message, projectId: conv.projectId, scope: conv.projectId ? "p:" + conv.projectId : "c:" + conv.id, context: pj ? `${pj.mode} · ${pj.title}` : "" }).then((r) => { if (r) { (conv.autoIds ||= []).push(r.id); emit({ type: "research", ...r }); } return r; }) : Promise.resolve(null)).catch(() => null);
       try {
         if (!llmLive()) { const t = "I'm in demo mode — add a Meta key (or an OpenAI-compatible fallback like xAI) in Admin → AI brain and I'll be able to plan and run studio tasks for you."; emit({ type: "delta", text: t }); conv.turns.push({ role: "assistant", content: t, at: now() }); return; }
         const hist = (): Msg[] => conv.turns.slice(-24).map((t: Turn): Msg => t.role === "tool" ? { role: "user", content: `TOOL RESULT ${t.tool} (${t.ok ? "ok" : "error"}):\n${t.content}` } : { role: t.role, content: t.content });
@@ -192,7 +197,7 @@ export function agentStream(o: { convId?: string; message: string; projectId?: s
         if (ran) await say(conv.abort ? "You were stopped by the user. Summarise briefly what was done and what's left. No JSON." : "All steps are done. Give the user a short conversational summary of what you did and what you found/made (cite concrete results), and suggest a next step. No JSON, no CALL lines.");
         if (conv.abort) emit({ type: "status", text: "Stopped." });
       } catch (e) { emit({ type: "error", error: (e as Error).message.slice(0, 500) }); }
-      finally { conv.busy = false; emit({ type: "done", projectId: conv.projectId }); try { ctrl.close(); } catch { /* */ } }
+      finally { await Promise.race([auto, new Promise((r) => setTimeout(r, 8000))]); conv.busy = false; emit({ type: "done", projectId: conv.projectId }); try { ctrl.close(); } catch { /* */ } }
     },
   });
   return { conv, stream };

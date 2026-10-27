@@ -54,37 +54,66 @@ export function RealDesk({ desk, mode }: { desk: ReturnType<typeof useDesk>; mod
   const kb = useRef<HTMLInputElement>(null);
   const curRef = useRef(cur); curRef.current = cur;
 
-  // frame loop (only while awake + visible)
+  // Stream: a WebSocket pushes only changed JPEG frames and carries input both ways (no per-frame/per-click HTTP round trip).
+  // Falls back to HTTP frame polling + POST input where WebSockets can't reach the desktop (e.g. the dev tunnel).
+  const ws = useRef<WebSocket | null>(null);
+  const acks = useRef(new Map<number, (j: { text?: boolean; cls?: string }) => void>());
+  const seq = useRef(0);
+  const [live, setLive] = useState(false);
   useEffect(() => {
-    if (state !== "awake") return; let dead = false, url = "";
-    const loop = async () => {
-      while (!dead) {
+    if (state !== "awake") return; let dead = false, url = "", sock: WebSocket | null = null, retry: ReturnType<typeof setTimeout>, fails = 0;
+    const show = (b: Blob) => { const u = URL.createObjectURL(b); setSrc(u); if (url) setTimeout((o: string) => URL.revokeObjectURL(o), 500, url); url = u; };
+    const connect = () => {
+      if (dead || document.visibilityState !== "visible") return;
+      try { sock = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/desk/ws`); } catch { fails = 9; poll(); return; }
+      sock.binaryType = "blob"; let opened = false;
+      sock.onopen = () => { opened = true; fails = 0; ws.current = sock; setLive(true); };
+      sock.onmessage = (e) => {
+        if (typeof e.data !== "string") return show(e.data as Blob);
+        try { const j = JSON.parse(e.data); if (j.t === "ack") { acks.current.get(j.id)?.(j); acks.current.delete(j.id); } } catch { /* */ }
+      };
+      sock.onclose = () => { if (ws.current === sock) ws.current = null; setLive(false); if (dead) return; if (!opened) fails++; if (fails >= 2) poll(); else retry = setTimeout(connect, 800); };
+    };
+    let polling = false;
+    const poll = async () => {
+      if (polling) return; polling = true;
+      while (!dead && !ws.current) {
         if (document.visibilityState === "visible") {
           const r = await fetch("/api/desk/frame", { headers: H, cache: "no-store" }).catch(() => null);
-          if (r?.status === 200 && (r.headers.get("Content-Type") || "").includes("image")) {
-            const u = URL.createObjectURL(await r.blob()); if (dead) { URL.revokeObjectURL(u); break; }
-            setSrc(u); if (url) setTimeout((o: string) => URL.revokeObjectURL(o), 1000, url); url = u;
-          }
+          if (r?.status === 200 && (r.headers.get("Content-Type") || "").includes("image")) { const b = await r.blob(); if (!dead) show(b); }
         }
-        await new Promise((r) => setTimeout(r, 180));
+        await new Promise((r) => setTimeout(r, 80));
       }
+      polling = false;
     };
-    loop(); return () => { dead = true; };
+    const vis = () => { if (document.visibilityState === "visible") { if (!ws.current && fails < 2) connect(); } else sock?.close(); };
+    document.addEventListener("visibilitychange", vis); connect();
+    return () => { dead = true; clearTimeout(retry); document.removeEventListener("visibilitychange", vis); sock?.close(); ws.current = null; if (url) URL.revokeObjectURL(url); };
   }, [state]);
 
   const q = useRef<Promise<unknown>>(Promise.resolve());
   // serialise input so keystrokes/clicks arrive in order
-  const raw = useCallback((o: Record<string, unknown>) => { const p = q.current.then(() => post("input", o)); q.current = p.catch(() => {}); return p as Promise<{ text?: boolean }>; }, [post]);
-  // typed characters are batched (one request per burst, not per key) — matters over a slow tunnel
+  const raw = useCallback((o: Record<string, unknown>): Promise<{ text?: boolean }> => {
+    const s = ws.current;
+    if (s && s.readyState === 1) {
+      if (o.t !== "click" && o.t !== "up") { s.send(JSON.stringify(o)); return Promise.resolve({}); }
+      const id = ++seq.current; s.send(JSON.stringify({ ...o, id }));
+      return new Promise<{ text?: boolean; cls?: string }>((res) => { acks.current.set(id, res); setTimeout(() => { if (acks.current.delete(id)) res({}); }, 4000); })
+        .then(async (j) => (/chrom/i.test(j.cls || "") ? { text: Number(o.y) < 0.13 || (await fetch("/api/desk/editable", { headers: H, cache: "no-store" }).then((r) => r.json()).catch(() => ({}))).text } : j));
+    }
+    const p = q.current.then(() => post("input", o)); q.current = p.catch(() => {}); return p as Promise<{ text?: boolean }>;
+  }, [post]);
+  // typed characters are batched (one message per burst, not per key)
   const buf = useRef(""); const bt = useRef<ReturnType<typeof setTimeout>>(undefined);
   const flush = useCallback(() => { clearTimeout(bt.current); if (buf.current) { const text = buf.current; buf.current = ""; raw({ t: "type", text }); } }, [raw]);
   const send = useCallback((o: Record<string, unknown>) => {
-    if (o.t === "type") { buf.current += String(o.text || ""); clearTimeout(bt.current); bt.current = setTimeout(flush, 60); return Promise.resolve({} as { text?: boolean }); }
+    if (o.t === "type") { buf.current += String(o.text || ""); clearTimeout(bt.current); bt.current = setTimeout(flush, ws.current ? 25 : 60); return Promise.resolve({} as { text?: boolean }); }
     flush(); return raw(o);
   }, [raw, flush]);
   const at = (cx: number, cy: number) => { const r = box.current!.getBoundingClientRect(); return { x: Math.max(0, Math.min(1, (cx - r.left) / r.width)), y: Math.max(0, Math.min(1, (cy - r.top) / r.height)) }; };
   // keyboard: focus synchronously inside the tap (iOS only raises the keyboard from a gesture); drop it if the remote focus isn't a text field
   const clickAndKb = async (p: { x: number; y: number }, button = "left") => {
+    setCur(p); curRef.current = p;
     if (button === "left") kb.current?.focus({ preventScroll: true });
     const j = await send({ t: "click", ...p, button });
     if (button === "left" && !j?.text) kb.current?.blur();
@@ -117,7 +146,7 @@ export function RealDesk({ desk, mode }: { desk: ReturnType<typeof useDesk>; mod
     const r = box.current!.getBoundingClientRect(); const k = 1.6;
     const n = { x: Math.max(0, Math.min(1, curRef.current.x + (dx / r.width) * k)), y: Math.max(0, Math.min(1, curRef.current.y + (dy / r.height) * k)) };
     setCur(n); curRef.current = n;
-    if (Date.now() - s.lastMove > 60) { s.lastMove = Date.now(); send({ t: "move", ...n }); }
+    if (Date.now() - s.lastMove > (ws.current ? 25 : 60)) { s.lastMove = Date.now(); send({ t: "move", ...n }); }
   };
   const onUp = (e: React.PointerEvent) => {
     if (!control) return; const s = g.current;
@@ -138,7 +167,8 @@ export function RealDesk({ desk, mode }: { desk: ReturnType<typeof useDesk>; mod
       onWheel={control ? (e) => send({ t: "scroll", dy: e.deltaY, ...at(e.clientX, e.clientY) }) : undefined}>
       {src ? <img src={src} alt="Reel’s desktop" draggable={false} className="pointer-events-none absolute inset-0 h-full w-full object-fill" />
         : <p className="grid h-full place-items-center text-xs text-ink-400">Connecting…</p>}
-      {control && mode === "mouse" && <svg aria-hidden viewBox="0 0 24 24" className="pointer-events-none absolute h-5 w-5 drop-shadow" style={{ left: `${cur.x * 100}%`, top: `${cur.y * 100}%` }}><path d="M3 2l7 19 2.5-7.5L20 11z" fill="#fff" stroke="#000" strokeWidth="1.5" strokeLinejoin="round" /></svg>}
+      {(mode === "mouse" || control) && <svg aria-hidden viewBox="0 0 24 24" className="pointer-events-none absolute h-5 w-5 drop-shadow" style={{ left: `${cur.x * 100}%`, top: `${cur.y * 100}%` }}><path d="M3 2l7 19 2.5-7.5L20 11z" fill="#fff" stroke="#000" strokeWidth="1.5" strokeLinejoin="round" /></svg>}
+      {control && <span className={`pointer-events-none absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-medium ${live ? "bg-emerald-500/80 text-black" : "bg-black/60 text-white/70"}`}>{live ? "LIVE" : "HTTP"}</span>}
       <input ref={kb} aria-label="Keyboard for Reel’s computer" autoCapitalize="off" autoCorrect="off" autoComplete="off" spellCheck={false} enterKeyHint="go"
         className="pointer-events-none fixed bottom-0 left-0 h-px w-px opacity-0" style={{ fontSize: 16 }}
         onKeyDown={(e) => { if (KEYS.includes(e.key)) { e.preventDefault(); send({ t: "key", key: e.key }); } else if ((e.ctrlKey || e.metaKey) && e.key.length === 1) { e.preventDefault(); send({ t: "key", key: "ctrl+" + e.key.toLowerCase() }); } }}

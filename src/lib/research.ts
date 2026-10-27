@@ -1,4 +1,5 @@
 import { deskContext } from "./desk";
+import { runComputerUse } from "./computer";
 import { nanoid } from "nanoid";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import path from "node:path";
@@ -6,8 +7,9 @@ import { DATA_DIR } from "./db";
 import { getConfig, llmChain, llmLabel } from "./config";
 import { db } from "./db";
 import { chatP, llmLive, metaLive, parseJson, type Msg } from "./providers/meta";
+import { enterStep } from "./usage";
 
-export type Task = "trending" | "analyse" | "watch" | "custom";
+export type Task = "trending" | "analyse" | "watch" | "custom" | "topic";
 export interface Step { n: number; at: string; action: string; thought?: string; shot?: string; kind?: "act" | "note" | "info" | "error" }
 export interface Video { title: string; channel: string; views?: string; url: string; thumb?: string; published?: string; length?: string }
 export interface Session {
@@ -16,7 +18,7 @@ export interface Session {
   status: "running" | "paused" | "done" | "error" | "stopped";
   steps: Step[]; notes: string; findings: string[]; trending: Video[]; frames: string[]; transcript?: string;
   mode: "meta-wonder" | "llm-agent" | "scripted" | "manual"; provider: string; error?: string;
-  stop?: boolean; pause?: boolean; maxSteps: number; screen?: string; pageUrl?: string; startedAt: string; savedToProject?: boolean; onDesk?: boolean;
+  stop?: boolean; pause?: boolean; maxSteps: number; auto?: boolean; facts?: string[]; summary?: string; screen?: string; pageUrl?: string; startedAt: string; savedToProject?: boolean; onDesk?: boolean;
 }
 
 const g = globalThis as unknown as { __opieResearch?: Map<string, Session> };
@@ -232,6 +234,7 @@ const TASK_BRIEF: Record<Task, (s: Session) => string> = {
   analyse: (s) => `Analyse the top YouTube titles and thumbnails for "${s.goal}". Collect at least 8 titles, note title formulas (numbers, questions, emotional words, length), and describe thumbnail patterns (faces, expressions, colours, text overlays) from what you SEE in screenshots.`,
   watch: (s) => `Watch this video and take detailed notes: ${s.url || s.goal}. Use the "transcript" action to read what is said, the "frames" action to look at sampled frames, and "read" for the description. Note the hook, structure, pacing, visual style and what makes it work.`,
   custom: (s) => s.goal,
+  topic: (s) => `Research the video topic "${s.goal}" on YouTube: search it, look at the top results (titles, views, length, thumbnails), open the most relevant video briefly, then do a quick Google search for key facts and current trends about it.`,
 };
 
 const AGENT_SYS = `You are ReelForge's research agent operating a real Chromium browser for a film studio. Each turn you get a screenshot (when supported), the page URL/title, a numbered list of visible interactive elements, and visible text.
@@ -345,7 +348,7 @@ async function finalNotes(s: Session) {
 async function wonderLoop(s: Session, page: Page) {
   const base = (getConfig("META_BASE_URL") || "https://api.meta.ai/v1").replace(/\/$/, "");
   const key = getConfig("META_API_KEY");
-  const model = getConfig("META_AGENT_MODEL") || "muse-wonder-1.0";
+  const model = getConfig("META_AGENT_MODEL") || "muse-spark-1.3";
   s.provider = `Meta Muse · ${model} (computer use)`;
   await goto(page, s.task === "watch" && s.url ? s.url : "https://www.youtube.com"); await log(s, page, "Open YouTube");
   const call = async (body: unknown) => {
@@ -377,6 +380,67 @@ async function wonderLoop(s: Session, page: Page) {
   }
 }
 
+
+// ───────────── Muse Wonder native computer use on the real desktop ─────────────
+async function deskWonder(s: Session, brief: string, steps = s.maxSteps) {
+  const r = await runComputerUse({
+    task: brief, maxSteps: steps,
+    gate: () => gate(s),
+    onStep: async (st) => { s.screen = st.screen || s.screen; s.pageUrl = "Reel’s computer"; await log(s, null, st.action, st.text); const last = s.steps[s.steps.length - 1]; if (last && st.screen) last.shot = st.screen; },
+  });
+  s.provider = `Meta Muse · ${r.model} (computer use on Reel’s computer)`;
+  if (r.text) s.findings.push(`Agent notes: ${r.text.slice(0, 3000)}`);
+  if (r.stopped === "safety") { s.needsUser = "safety"; await log(s, null, r.text, undefined, "info"); }
+  return r;
+}
+
+// ───────────── Auto-research a brainstorm topic (YouTube top videos + Google facts) ─────────────
+async function googleFacts(page: Page, q: string) {
+  await goto(page, `https://www.google.com/search?hl=en&q=${encodeURIComponent(q)}`);
+  return page.$$eval("div.g, div.MjjYud, div[data-snc]", (els) => els.slice(0, 8).map((e) => {
+    const h = (e.querySelector("h3") as HTMLElement | null)?.innerText || ""; const sn = (e.querySelector(".VwiC3b, [data-sncf], .IsZvec") as HTMLElement | null)?.innerText || "";
+    return h ? `${h}${sn ? " — " + sn.replace(/\s+/g, " ").slice(0, 260) : ""}` : "";
+  }).filter(Boolean)).catch(() => [] as string[]);
+}
+async function topicResearch(s: Session, page: Page) {
+  // 1) YouTube search (visible on Reel’s computer)
+  await goto(page, `https://www.youtube.com/results?search_query=${encodeURIComponent(s.goal)}&hl=en`); await log(s, page, `Search YouTube: "${s.goal}"`);
+  if (!(await gate(s))) return;
+  if (!s.trending.length) { s.trending = mergeVideos(s.trending, await scrapeResults(page)); await page.mouse.wheel(0, 900).catch(() => {}); await page.waitForTimeout(1200); s.trending = mergeVideos(s.trending, await scrapeResults(page)); }
+  await log(s, page, `Noted ${s.trending.length} top videos`, s.trending.slice(0, 3).map((v) => `${v.title} (${v.views || "?"})`).join(" · "), "info");
+  // 2) transcripts of the top 2
+  for (const v of s.trending.slice(0, 2)) {
+    if (!(await gate(s))) return;
+    const w = await watchVideo(s, page, v.url).catch(() => ({ transcript: "", frames: [] as string[] }));
+    if (w.transcript) { s.findings.push(`Transcript of "${v.title}" (${v.views || ""}, ${v.length || ""}): ${w.transcript.slice(0, 1800)}`); s.transcript ||= w.transcript; }
+    await log(s, null, `Watched “${v.title.slice(0, 60)}”`, w.transcript ? `captions: ${w.transcript.split(" ").length} words` : "no captions", "act");
+  }
+  // 3) thumbnail styles (vision, when available)
+  if (llmLive() && s.trending.length && (await gate(s))) {
+    try {
+      const thumbs = s.trending.slice(0, 4).map((v) => v.thumb).filter(Boolean) as string[];
+      const r = await chatP([{ role: "user", content: [{ type: "text", text: "These are the top YouTube thumbnails for one topic. In 4 short bullets describe the shared thumbnail style: faces/expressions, text overlays (words, size, colour), colour palette, composition. Only what you see." }, ...thumbs.map((u) => ({ type: "image_url" as const, image_url: { url: u } }))] }], { vision: true, temperature: 0.2, task: "review" });
+      s.findings.push("Thumbnail styles: " + r.text.slice(0, 1200)); await log(s, null, "Looked at thumbnail styles", r.text.slice(0, 160), "info");
+    } catch { /* vision optional */ }
+  }
+  // 4) quick Google facts & trends
+  if (await gate(s)) {
+    s.facts = await googleFacts(page, `${s.goal} facts`);
+    const t = await googleFacts(page, `${s.goal} trend ${new Date().getFullYear()}`); s.facts.push(...t);
+    await log(s, page, `Google: ${s.facts.length} fact snippets`, s.facts[0]?.slice(0, 160), "act");
+  }
+}
+async function topicSummary(s: Session) {
+  const vids = s.trending.slice(0, 8).map((v, i) => `${i + 1}. ${v.title} — ${v.channel || "?"} · ${v.views || "?"} · ${v.length || "?"} · ${v.published || ""}`).join("\n");
+  if (!llmLive()) {
+    s.notes = `## Research — ${s.goal}\n\n**Top videos**\n${vids || "(none found)"}\n\n**Facts**\n${(s.facts || []).slice(0, 5).map((f) => "- " + f).join("\n")}`;
+    s.summary = s.notes; return;
+  }
+  const r = await chatP([{ role: "system", content: "You are a YouTube strategist for a film studio. Be concise and specific. Use ONLY the data given — never invent titles, view counts or facts." },
+    { role: "user", content: `Topic: ${s.goal}\n\nTop YouTube videos (title — channel · views · length · age):\n${vids || "(none)"}\n\nFindings:\n${s.findings.join("\n").slice(0, 7000)}\n\nGoogle snippets:\n${(s.facts || []).join("\n").slice(0, 2500)}\n\nWrite markdown, max ~250 words:\n## What’s working (top videos: views, length, hook & structure patterns)\n## Thumbnail style\n## Facts & trends (cite what the snippets say)\n## Angles for us (3)\n## Title options (5)\n## Hook (one line, first 2 seconds)` }], { temperature: 0.4, task: "director" });
+  s.notes = `## 🔎 Research — ${s.goal}\n\n${r.text.trim()}`; s.summary = s.notes; s.provider ||= r.provider;
+}
+
 // ───────────── Scripted (no AI key) ─────────────
 async function scripted(s: Session, page: Page) {
   s.provider = "demo (scripted browsing)";
@@ -403,29 +467,38 @@ async function scripted(s: Session, page: Page) {
   s.notes = `## Research notes — ${s.goal}\n\n**Demo mode:** a scripted browser collected this data; add an AI key in Admin → AI brain for an agent that reasons over screenshots.\n\n## Top videos\n${s.trending.slice(0, 8).map((v, i) => `${i + 1}. ${v.title} — ${v.channel} (${v.views || "?"})`).join("\n")}\n\n## Title patterns\n- Recurring words: ${freq.map(([w, c]) => `${w}×${c}`).join(", ")}\n- ${caps}/${s.trending.length} use ALL-CAPS words, ${nums} include numbers, ${q} ask a question\n${s.transcript ? `\n## Transcript excerpt (top video)\n${s.transcript.slice(0, 600)}…\n` : ""}`;
 }
 
-export function startResearch(o: { goal: string; task?: Task; url?: string; projectId?: string; maxSteps?: number }) {
-  const mode: Session["mode"] = metaLive() && llmChain()[0] === "meta" ? "meta-wonder" : llmLive() ? "llm-agent" : "scripted";
-  const s: Session = { id: nanoid(10), goal: o.goal, task: o.task || "trending", url: o.url, projectId: o.projectId, status: "running", steps: [], notes: "", findings: [], trending: [], frames: [], mode, provider: llmLive() ? llmLabel() : "demo", maxSteps: Math.min(40, Math.max(3, o.maxSteps || parseInt(getConfig("RESEARCH_MAX_STEPS") || "14"))), startedAt: new Date().toISOString() };
+export function startResearch(o: { goal: string; task?: Task; url?: string; projectId?: string; maxSteps?: number; auto?: boolean }) {
+  // Muse Wonder computer use is the default whenever a Meta key is set; otherwise the vision/text agent on OmniRoute/fallback.
+  const mode: Session["mode"] = metaLive() ? "meta-wonder" : llmLive() ? "llm-agent" : "scripted";
+  const s: Session = { id: nanoid(10), goal: o.goal, task: o.task || "trending", url: o.url, projectId: o.projectId, status: "running", steps: [], notes: "", findings: [], trending: [], frames: [], mode, provider: llmLive() ? llmLabel() : "demo", maxSteps: Math.min(40, Math.max(3, o.maxSteps || parseInt(getConfig("RESEARCH_MAX_STEPS") || "14"))), startedAt: new Date().toISOString(), auto: o.auto };
   sessions.set(s.id, s);
   (async () => {
+    if (s.projectId) enterStep(s.projectId, "research");
     try {
       await log(s, null, `Boot virtual desktop (headless Chromium ${W}×${H}) — ${mode === "scripted" ? "demo scripted mode" : `agent: ${s.provider}`}`, undefined, "info");
       await youtubeApi(s);
       // Prefer the real desktop's Chromium so the user watches (and can take over) the same browser.
       const dctx = await deskContext().catch(() => null); if (dctx) { s.onDesk = true; await log(s, null, "Using Reel’s computer (real Linux desktop Chromium)", undefined, "info"); }
       const page = await (dctx || await profileContext()).newPage(); pages.set(s.id, page);
-      if (mode === "meta-wonder") { try { await wonderLoop(s, page); } catch (e) { await log(s, null, "Muse Wonder unavailable — switching to vision agent", (e as Error).message.slice(0, 200), "error"); await llmLoop(s, page); } }
+      if (s.task === "topic") {
+        // fast, bounded pipeline; with a Meta key Muse Wonder first drives the desktop for a few steps (the user watches it live)
+        if (mode === "meta-wonder" && dctx) { try { await deskWonder(s, TASK_BRIEF.topic(s) + " Keep it quick (max ~8 actions) and finish with 5 bullet findings.", 8); } catch (e) { await log(s, null, "Meta computer use unavailable — continuing with the scripted pass", (e as Error).message.slice(0, 200), "error"); } }
+        await topicResearch(s, page);
+        if (!s.stop) { await log(s, null, "Writing the research summary…", undefined, "info"); await topicSummary(s); }
+      } else if (mode === "meta-wonder" && dctx) { try { await deskWonder(s, `${TASK_BRIEF[s.task](s)} Finish with concise research notes (findings, title patterns, thumbnail patterns, hooks, story ideas).`); } catch (e) { await log(s, null, "Meta computer use failed — switching to the vision agent", (e as Error).message.slice(0, 200), "error"); await llmLoop(s, page); } }
+      else if (mode === "meta-wonder") { try { await wonderLoop(s, page); } catch (e) { await log(s, null, "Meta computer use unavailable — switching to vision agent", (e as Error).message.slice(0, 200), "error"); await llmLoop(s, page); } }
       else if (mode === "llm-agent") await llmLoop(s, page);
       else await scripted(s, page);
-      if (mode !== "scripted" && !s.stop) { await log(s, null, "Writing final research notes…", undefined, "info"); await finalNotes(s); }
-      s.status = s.stop ? "stopped" : "done";
+      if (mode !== "scripted" && s.task !== "topic" && !s.stop) { await log(s, null, "Writing final research notes…", undefined, "info"); await finalNotes(s); }
       if (s.stop && !s.notes && s.findings.length) s.notes = `## Partial notes — ${s.goal}\n${s.findings.map((f) => "- " + f).join("\n")}`;
     } catch (e) { s.status = "error"; s.error = (e as Error).message.slice(0, 400); }
     finally {
       if (!s.onDesk) await pages.get(s.id)?.close().catch(() => {}); pages.delete(s.id);
       if (s.projectId && s.notes) {
-        await db.update(s.projectId, (x) => { const at = new Date().toISOString(); (x.research ||= []).push({ id: s.id, goal: s.goal, notes: s.notes, at, provider: s.provider }); x.brainstorm.push({ role: "assistant", kind: "note", content: `📎 Research notes attached: ${s.goal}`, at }); }).then(() => (s.savedToProject = true)).catch(() => {});
+        await db.update(s.projectId, (x) => { const at = new Date().toISOString(); (x.research ||= []).push({ id: s.id, goal: s.goal, notes: s.notes, at, provider: s.provider }); x.brainstorm.push(s.task === "topic" ? { role: "assistant", kind: "research", content: s.notes, provider: s.provider, at } : { role: "assistant", kind: "note", content: `📎 Research notes attached: ${s.goal}`, at }); }).then(() => (s.savedToProject = true)).catch(() => {});
       }
+      // flip status only after the notes are saved, so a client reload on "done" sees them
+      if (s.status === "running" || s.status === "paused") s.status = s.stop ? "stopped" : "done";
     }
   })();
   return s;

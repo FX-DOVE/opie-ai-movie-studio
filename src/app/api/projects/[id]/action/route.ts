@@ -6,6 +6,9 @@ import * as S from "@/lib/studio";
 import * as R from "@/lib/render";
 
 import { WRITING } from "@/lib/jobs";
+import { enterStep } from "@/lib/usage";
+// which pipeline step each action belongs to (feeds the “Built with Meta” pipeline view)
+const STEP: Record<string, string> = { useIdea: "idea", writeScript: "screenplay", extractAssets: "bible", autofillAsset: "bible", assetImage: "references", autocreateAssets: "references", buildStoryboard: "shots", frame: "shots", autofillFrames: "shots", clip: "video", clipAll: "video", continuity: "continuity", continuityAll: "continuity", fixContinuity: "fix", expandSpec: "bible", lockAsset: "references", voiceShot: "voice", voiceAll: "voice", render: "export", aiEdit: "export" };
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 type Ctx = { params: Promise<{ id: string }> };
@@ -19,6 +22,7 @@ async function handle(req: Request, { params }: Ctx) {
   const p = db.getProject(id);
   if (!p) return NextResponse.json({ error: "not found" }, { status: 404 });
   const b = await req.json().catch(() => ({}));
+  if (STEP[b.action]) enterStep(id, STEP[b.action]);
   try {
     let result: unknown = null;
     switch (b.action) {
@@ -28,17 +32,21 @@ async function handle(req: Request, { params }: Ctx) {
       case "writeScript": await db.update(id, (x) => { x.writing = Date.now(); }); WRITING.add(id); try { result = await S.writeScript(p, String(b.prompt || "")); } finally { WRITING.delete(id); await db.update(id, (x) => { x.writing = undefined; }); } break;
       case "extractAssets": result = await S.extractAssets(p); break;
       case "addAsset": await db.update(id, (x) => { x.assets.push({ id: nanoid(8), kind: b.kind, name: b.name || "New " + b.kind, description: "", details: "", images: [], voice: b.kind === "character" ? "en-US-AriaNeural" : undefined }); x.bible = S.buildBible(x); }); break;
-      case "updateAsset": await db.update(id, (x) => { const a = x.assets.find((y) => y.id === b.assetId); if (a) { for (const k of ["name", "description", "details", "voice", "activeImage"]) if (k in b.patch) (a as unknown as Record<string, unknown>)[k] = b.patch[k]; } x.bible = S.buildBible(x); }); break;
+      case "updateAsset": await db.update(id, (x) => { const a = x.assets.find((y) => y.id === b.assetId); if (a) { for (const k of a.locked ? ["name", "voice"] : ["name", "description", "details", "voice", "activeImage"]) if (k in b.patch) (a as unknown as Record<string, unknown>)[k] = b.patch[k]; if ("activeImage" in b.patch && !a.locked) { a.approved = true; a.refState = undefined; } if (!a.locked && ("description" in b.patch || "details" in b.patch)) a.spec = undefined; } x.bible = S.buildBible(x); }); break;
       case "deleteAsset": await db.update(id, (x) => { x.assets = x.assets.filter((a) => a.id !== b.assetId); x.scenes.forEach((s) => s.shots.forEach((sh) => (sh.assetIds = sh.assetIds.filter((a) => a !== b.assetId)))); x.bible = S.buildBible(x); }); break;
-      case "assetImage": result = await S.assetImage(p, b.assetId, b.prompt || ""); break;
+      case "assetImage": result = await S.assetImage(p, b.assetId, b.prompt || ""); await S.reviewReference(id, b.assetId); break;
+      case "expandSpec": result = await S.expandSpec(p, b.assetId); break;
+      case "lockAsset": await S.lockAsset(p, b.assetId, b.locked !== false); break;
+      case "autoContinuity": await S.autoContinuity(id, b.shotId ? [b.shotId] : undefined); break;
       case "autofillAsset": result = await S.autofillAsset(p, b.assetId); break;
-      case "autocreateAssets": { for (const a of p.assets.filter((a) => !a.activeImage)) await S.assetImage(db.getProject(id)!, a.id); break; }
+      case "autocreateAssets": result = await S.autocreateAndAdvance(id); break;
+      case "approveAsset": await db.update(id, (x) => { const a = x.assets.find((y) => y.id === b.assetId); if (a) { a.approved = b.approved !== false; if (a.approved) a.refState = a.refState === "attention" ? "passed" : a.refState; } }); break;
       case "buildStoryboard": result = await S.buildStoryboard(p); break;
-      case "frame": result = await S.generateFrame(p, b.shotId, b.which === "end" ? "end" : "start", b.prompt || undefined); break;
+      case "frame": result = await S.generateFrame(p, b.shotId, b.which === "end" ? "end" : "start", b.prompt || undefined); await S.autoContinuity(id, [b.shotId]); break;
       case "autofillFrames": {
         const shots = p.scenes.flatMap((s) => s.shots).filter((sh) => !sh.activeStart).slice(0, b.limit || 50);
         for (const sh of shots) { await S.generateFrame(db.getProject(id)!, sh.id, "start"); if (b.withEnd) await S.generateFrame(db.getProject(id)!, sh.id, "end"); }
-        result = { generated: shots.length }; break;
+        result = { generated: shots.length }; await S.autoContinuity(id); break;
       }
       case "selectVersion": await db.update(id, (x) => { const sh = S.findShot(x, b.shotId); if (b.which === "end") sh.activeEnd = b.versionId; else sh.activeStart = b.versionId; sh.continuity = undefined; }); break;
       case "updateShot": await db.update(id, (x) => { const sh = S.findShot(x, b.shotId); for (const k of ["description", "camera", "dialogue", "narration", "speaker", "durationSec", "assetIds", "trimStart", "trimEnd"]) if (k in b.patch) (sh as unknown as Record<string, unknown>)[k] = b.patch[k]; if ("dialogue" in b.patch || "narration" in b.patch) sh.audioUrl = undefined; }); break;
@@ -55,8 +63,9 @@ async function handle(req: Request, { params }: Ctx) {
       case "fixContinuity": result = await S.fixContinuity(p, b.shotId); break;
       case "voiceShot": result = await R.voiceShot(p, b.shotId); break;
       case "voiceAll": result = await R.voiceAll(p); break;
-      case "clip": result = await R.clipShot(p, b.shotId); break;
-      case "clipAll": { const out = []; for (const sh of p.scenes.flatMap((s) => s.shots).filter((s) => s.activeStart)) out.push(await R.clipShot(db.getProject(id)!, sh.id)); result = out; break; }
+      case "clip": result = await R.queueClips(id, [b.shotId]); break;
+      case "clipAll": result = await R.queueClips(id, p.scenes.flatMap((s) => s.shots).filter((s) => s.activeStart && (b.all || !s.clipUrl)).map((s) => s.id)); break;
+      case "videoEstimate": result = R.videoEstimate(p); break;
       case "render": {
         if (p.render.status === "running") break;
         await db.update(id, (x) => { x.render = { status: "queued", progress: 0, message: "Queued", updatedAt: new Date().toISOString() }; });

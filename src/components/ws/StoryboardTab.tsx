@@ -4,7 +4,17 @@ import { AlertTriangle, ArrowRight, CheckCircle2, Clapperboard, ImagePlus, Mic, 
 import type { Shot } from "@/lib/types";
 import { Drawer, SourceBadge, Spinner } from "../ui";
 import { PromptBar } from "./PromptBar";
+import { ClipJobBadge } from "./VideoTab";
 import { active, ratio, shotsOf, type TabProps } from "./common";
+
+const CS: Record<string, { t: string; c: string }> = { checking: { t: "Checking", c: "bg-sky-500/90" }, fixing: { t: "Fixing", c: "bg-sky-500/90" }, passed: { t: "Passed", c: "bg-emerald-600/90" }, fixed: { t: "Fixed", c: "bg-emerald-600/90" }, attention: { t: "Needs attention", c: "bg-amber-500/90" } };
+export function ContinuityBadge({ sh }: { sh: Shot }) {
+  const c = sh.continuity; if (!c) return null;
+  const st = c.state || (c.ok ? "passed" : "attention"); const m = CS[st];
+  return <span title={c.issues?.join("; ") || undefined} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium text-white shadow ${m.c}`}>
+    {st === "checking" || st === "fixing" ? <Spinner className="h-2.5 w-2.5" /> : st === "attention" ? <AlertTriangle className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />}{m.t}{st === "fixing" && c.attempts ? ` ${c.attempts}` : ""}
+  </span>;
+}
 
 export function StoryboardTab(props: TabProps & { next: () => void }) {
   const { p, act, busy, next } = props;
@@ -13,7 +23,9 @@ export function StoryboardTab(props: TabProps & { next: () => void }) {
   const shots = shotsOf(p);
   const open = shots.find((s) => s.id === openId);
   const framed = shots.filter((s) => s.activeStart).length;
-  const flagged = shots.filter((s) => s.continuity && !s.continuity.ok).length;
+  const st = (k: string) => shots.filter((s) => (s.continuity?.state || (s.continuity ? (s.continuity.ok ? "passed" : "attention") : "")) === k).length;
+  const working = st("checking") + st("fixing");
+  const summary = shots.some((s) => s.continuity) ? ` · Continuity: ${working ? `reviewing ${working}… · ` : ""}${st("passed")} passed · ${st("fixed")} auto-fixed${st("attention") ? ` · ${st("attention")} need attention` : ""}` : "";
   const cols = p.aspect === "9:16" || p.aspect === "4:5" ? "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8" : "grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4";
 
   return (
@@ -23,12 +35,11 @@ export function StoryboardTab(props: TabProps & { next: () => void }) {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="text-xl font-semibold tracking-tight">Storyboard</h2>
-              <p className="mt-0.5 text-sm text-ink-400">{shots.length ? `${p.scenes.length} scenes · ${shots.length} shots · ${framed} framed${flagged ? ` · ${flagged} continuity flags` : ""}` : "The director agent turns your script into a shot list with start and end frames."}</p>
+              <p className="mt-0.5 text-sm text-ink-400">{shots.length ? `${p.scenes.length} scenes · ${shots.length} shots · ${framed} framed${summary}` : "The director agent turns your script into a shot list with start and end frames."}</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button className="btn-outline" disabled={!p.script || busy.has("buildStoryboard")} onClick={() => { if (!shots.length || confirm("Rebuild the shot list? Existing frames will be replaced.")) act("buildStoryboard"); }}>{busy.has("buildStoryboard") ? <Spinner /> : <Clapperboard className="h-4 w-4" />}{shots.length ? "Rebuild" : "Build shot list"}</button>
               <button className="btn-outline" disabled={!shots.length || busy.has("autofillFrames")} onClick={() => act("autofillFrames", { withEnd: p.outputType === "video" })}>{busy.has("autofillFrames") ? <Spinner /> : <Sparkles className="h-4 w-4" />} Autofill frames</button>
-              <button className="btn-outline" disabled={!framed || busy.has("continuityAll")} onClick={() => act("continuityAll")}>{busy.has("continuityAll") ? <Spinner /> : <ShieldCheck className="h-4 w-4" />} Check continuity</button>
               <button className="btn-brand" disabled={!framed} onClick={next}>Video <ArrowRight className="h-4 w-4" /></button>
             </div>
           </div>
@@ -73,7 +84,8 @@ function ShotCard({ sh, aspect, busy, onOpen }: { sh: Shot; aspect: string; busy
         {busy && <div className="absolute inset-0 grid place-items-center bg-black/55"><Spinner className="h-6 w-6" /></div>}
         <span className="absolute left-2 top-2 badge bg-black/60 text-white">{sh.index + 1}</span>
         {end && <img src={end.url} alt="" className="absolute bottom-2 right-2 h-[28%] rounded-md border border-white/40 object-cover shadow-lg" style={{ aspectRatio: ratio(aspect) }} />}
-        {sh.continuity && <span className={`absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full ${sh.continuity.ok ? "bg-emerald-500/90" : "bg-amber-500/90"}`}>{sh.continuity.ok ? <CheckCircle2 className="h-3.5 w-3.5 text-white" /> : <AlertTriangle className="h-3.5 w-3.5 text-white" />}</span>}
+        <span className="absolute right-2 top-2"><ContinuityBadge sh={sh} /></span>
+        <span className="absolute bottom-2 left-2"><ClipJobBadge sh={sh} /></span>
       </div>
       <div className="space-y-1 p-2.5">
         <div className="flex items-center gap-1.5 text-[11px] text-ink-400"><span className="truncate">{sh.camera}</span><span className="ml-auto shrink-0">{sh.durationSec}s</span>{sh.audioUrl && <Mic className="h-3 w-3 text-sky-glow" />}</div>
@@ -125,17 +137,19 @@ function ShotEditor({ sh, which, setWhich, p, act, busy, setP, toast, onDeleted 
       <div className="rounded-2xl border border-white/[0.07] p-4">
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-4 w-4 text-brand-400" /><span className="text-sm font-semibold">Continuity</span>
-          {sh.continuity && <SourceBadge source={sh.continuity.source} />}
-          <button className="btn-ghost ml-auto h-8" disabled={busy.has("continuity") || !sh.activeStart} onClick={() => act("continuity", { shotId: sh.id })}>{busy.has("continuity") ? <Spinner /> : "Check"}</button>
+          <ContinuityBadge sh={sh} />
+          {sh.continuity?.source && <span className="ml-auto"><SourceBadge source={sh.continuity.source} /></span>}
         </div>
         {sh.continuity ? (
-          sh.continuity.ok ? <p className="mt-2 flex items-center gap-2 text-sm text-emerald-300"><CheckCircle2 className="h-4 w-4" />Matches the production bible.</p> : (
+          sh.continuity.state === "checking" || sh.continuity.state === "fixing" ? <p className="mt-2 text-xs text-ink-300">{sh.continuity.state === "fixing" ? `Auto-fixing (attempt ${sh.continuity.attempts || 1}) with a Muse Image edit anchored on the approved references…` : "Reviewing against the character, prop and location bibles…"}</p> :
+          sh.continuity.ok ? <p className="mt-2 flex items-center gap-2 text-sm text-emerald-300"><CheckCircle2 className="h-4 w-4" />{sh.continuity.state === "fixed" ? `Auto-fixed after ${sh.continuity.attempts} edit(s) — matches the bible now.` : "Matches the production bible."}</p> : (
             <div className="mt-2 space-y-2">
               <ul className="space-y-1 text-sm text-amber-200">{sh.continuity.issues.map((i, k) => <li key={k} className="flex gap-2"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{i}</li>)}</ul>
-              <button className="btn-brand h-9" disabled={busy.has("fixContinuity")} onClick={() => act("fixContinuity", { shotId: sh.id })}>{busy.has("fixContinuity") ? <Spinner /> : <Wand2 className="h-4 w-4" />} One-click fix</button>
+              {sh.continuity.fix && <p className="rounded-lg bg-white/[0.04] px-2.5 py-1.5 text-xs text-ink-300"><span className="text-brand-300">Proposed fix · </span>{sh.continuity.fix}</p>}
+              <p className="text-xs text-ink-400">Auto-fix stopped after {sh.continuity.attempts ?? 0} attempt(s). Edit the frame with a prompt above, or regenerate it — it is re-checked automatically.</p>
             </div>
           )
-        ) : <p className="mt-2 text-xs text-ink-400">The vision model compares this frame against the linked reference sheets (face, skin tone, hair, wardrobe, makeup, watches, props, location).</p>}
+        ) : <p className="mt-2 text-xs text-ink-400">Reviewed automatically once the frame exists: face, wardrobe colours, hair, makeup, accessories, props, location, lighting and the previous shot’s state.</p>}
       </div>
 
       <div className="space-y-4">

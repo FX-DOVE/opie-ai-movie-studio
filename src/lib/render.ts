@@ -3,9 +3,11 @@ import path from "node:path";
 import { db, mediaPath, mediaUrl, projectMediaDir } from "./db";
 import { ffmpeg, probeDuration } from "./ffmpeg";
 import { speak } from "./providers/tts";
-import { videoProvider } from "./providers/video";
+import { chain, estimate, listProviders, runProvider } from "./providers/videoProviders";
 import { chat, llmLive, structured } from "./providers/meta";
 import { findShot } from "./studio";
+import { record, withStep } from "./usage";
+import { getConfig } from "./config";
 import { aspectSize, type Project, type Shot } from "./types";
 
 const now = () => new Date().toISOString();
@@ -34,16 +36,67 @@ export async function voiceAll(p: Project) {
   return out;
 }
 
-export async function clipShot(p: Project, shotId: string) {
+/** Generate one clip now: the project's provider first, then the Admin fallback order (demo motion last), with retries. */
+export async function clipShot(p: Project, shotId: string, onJob?: (j: NonNullable<Shot["clipJob"]>) => unknown) {
   const sh = findShot(p, shotId);
   const start = sh.startFrame.find((v) => v.id === sh.activeStart);
   if (!start) throw new Error("Generate a start frame first");
   const end = sh.endFrame.find((v) => v.id === sh.activeEnd);
   const file = path.join(projectMediaDir(p.id), `clip-${sh.id}-${Date.now()}.mp4`);
-  const prov = videoProvider();
-  await prov.generate({ startFrame: mediaPath(start.url), endFrame: end ? mediaPath(end.url) : undefined, prompt: `${sh.camera}. ${sh.description}`, aspect: p.aspect, durationSec: sh.durationSec, outFile: file });
-  await db.update(p.id, (x) => { findShot(x, shotId).clipUrl = mediaUrl(file); });
-  return { url: mediaUrl(file), provider: prov.id };
+  const retries = Math.max(0, Math.min(3, parseInt(getConfig("VIDEO_RETRIES") || "1")));
+  const errors: string[] = [];
+  for (const prov of chain(p.videoProvider)) {
+    for (let attempt = 1; attempt <= retries + 1; attempt++) {
+      const est = estimate(prov, sh.durationSec);
+      await onJob?.({ state: "running", provider: prov.name, attempt, progress: 2, estUsd: est.usd });
+      try {
+        await runProvider(prov, { startFrame: mediaPath(start.url), endFrame: end ? mediaPath(end.url) : undefined, prompt: `${sh.camera}. ${sh.description}`, aspect: p.aspect, durationSec: sh.durationSec, outFile: file }, (pct) => { void onJob?.({ state: "running", provider: prov.name, attempt, progress: Math.round(pct), estUsd: est.usd }); });
+        record("video", prov.type === "mock" ? "Demo" : prov.name, prov.model, undefined, 0, est.usd);
+        await db.update(p.id, (x) => { const t = findShot(x, shotId); t.clipUrl = mediaUrl(file); t.clipProvider = prov.name; });
+        return { url: mediaUrl(file), provider: prov.id, name: prov.name, attempt, errors };
+      } catch (e) {
+        errors.push(`${prov.name} #${attempt}: ${(e as Error).message.slice(0, 160)}`);
+        if (/no API key|HTTP 40[13]|HTTP 422|unsupported/i.test((e as Error).message)) break; // don't retry config errors
+        if (attempt <= retries) await new Promise((r) => setTimeout(r, 3000 * attempt));
+      }
+    }
+  }
+  throw new Error("All video providers failed — " + errors.join(" | "));
+}
+
+// ---- video job queue (one clip at a time per server; the VPS has a single CPU) ----
+const vq: { pid: string; shotId: string }[] = []; let vqRunning = false;
+const setJob = (pid: string, shotId: string, j: Partial<NonNullable<Shot["clipJob"]>>) => db.update(pid, (x) => { try { const t = findShot(x, shotId); t.clipJob = { ...(t.clipJob || { state: "queued" }), ...j, updatedAt: now() }; } catch { /* deleted */ } });
+export async function queueClips(pid: string, shotIds: string[]) {
+  const p = db.getProject(pid)!;
+  const prov = chain(p.videoProvider)[0];
+  for (const id of shotIds) {
+    if (vq.some((q) => q.pid === pid && q.shotId === id)) continue;
+    const sh = findShot(p, id);
+    await setJob(pid, id, { state: "queued", provider: prov?.name, attempt: 0, progress: 0, error: undefined, estUsd: prov ? estimate(prov, sh.durationSec).usd : undefined });
+    vq.push({ pid, shotId: id });
+  }
+  if (!vqRunning) void drain();
+  return { queued: shotIds.length, provider: prov?.name };
+}
+async function drain() {
+  vqRunning = true;
+  try {
+    while (vq.length) {
+      const { pid, shotId } = vq.shift()!;
+      const p = db.getProject(pid); if (!p) continue;
+      try { await withStep(pid, "video", () => clipShot(p, shotId, (j) => setJob(pid, shotId, j))); await setJob(pid, shotId, { state: "done", progress: 100, error: undefined }); }
+      catch (e) { await setJob(pid, shotId, { state: "failed", error: (e as Error).message.slice(0, 400) }); }
+    }
+  } finally { vqRunning = false; }
+}
+/** Cost/duration estimate for every framed shot with the project's provider. */
+export function videoEstimate(p: Project) {
+  const prov = chain(p.videoProvider)[0] || listProviders()[0];
+  const shots = shotsOf(p).filter((s) => s.activeStart);
+  let secs = 0, usd = 0, priced = true;
+  for (const s of shots) { const e = estimate(prov, s.durationSec); secs += e.seconds; if (e.usd === undefined) priced = false; else usd += e.usd; }
+  return { provider: prov?.name, shots: shots.length, seconds: secs, usd: priced ? +usd.toFixed(2) : undefined };
 }
 
 function srtTime(t: number) {
@@ -147,7 +200,7 @@ async function reviewCut(p: Project, total: number) {
   const shots = shotsOf(p);
   const rows = await Promise.all(shots.map(async (s, i) => ({ i: i + 1, dur: s.durationSec, audio: s.audioUrl ? await probeDuration(mediaPath(s.audioUrl)) : 0, text: s.narration || s.dialogue || "", hasFrame: !!s.activeStart, continuity: s.continuity?.ok })));
   if (llmLive()) {
-    return chat([{ role: "system", content: "You are a post-production supervisor. Review this edit decision list for voice/subtitle sync, pacing, continuity and platform fit. Reply with 3-6 short bullet points and concrete fixes." }, { role: "user", content: `Format ${p.format} ${p.aspect}, total ${total.toFixed(1)}s.\n${JSON.stringify(rows)}` }], { temperature: 0.2 });
+    return chat([{ role: "system", content: "You are a post-production supervisor. Review this edit decision list for voice/subtitle sync, pacing, continuity and platform fit. Reply with 3-6 short bullet points and concrete fixes." }, { role: "user", content: `Format ${p.format} ${p.aspect}, total ${total.toFixed(1)}s.\n${JSON.stringify(rows)}` }], { temperature: 0.2, task: "review" });
   }
   const notes: string[] = [];
   const max = { yt_shorts: 60, tiktok: 180, fb_reels: 90, yt_long: 1200 }[p.format];

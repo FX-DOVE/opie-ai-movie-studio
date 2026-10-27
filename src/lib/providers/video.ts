@@ -5,7 +5,7 @@ import { aspectSize, type Aspect } from "../types";
 
 /** First-frame → last-frame video generation. Providers are plug-ins selected in Admin. */
 export interface VideoRequest { startFrame: string; endFrame?: string; prompt: string; aspect: Aspect; durationSec: number; outFile: string }
-export interface VideoProvider { id: string; label: string; generate(r: VideoRequest): Promise<void> }
+export interface VideoProvider { id: string; label: string; generate(r: VideoRequest, o?: { key: string; model?: string; base?: string }): Promise<void> }
 
 /** Demo provider: a local motion clip (push-in on the start frame, crossfade into the end frame). */
 export const mockVideo: VideoProvider = {
@@ -29,14 +29,14 @@ export const mockVideo: VideoProvider = {
 export const veoVideo: VideoProvider = {
   id: "veo",
   label: "Google Veo 3.1 (first + last frame)",
-  async generate(r) {
-    const key = getConfig("GEMINI_API_KEY");
+  async generate(r, o) {
+    const key = o?.key || getConfig("GEMINI_API_KEY");
     if (!key) throw new Error("Veo is not configured");
-    const model = getConfig("VEO_MODEL") || "veo-3.1-generate-preview";
+    const model = o?.model || getConfig("VEO_MODEL") || "veo-3.1-generate-preview";
     const b64 = (f: string) => fs.readFileSync(f).toString("base64");
     const instance: Record<string, unknown> = { prompt: r.prompt, image: { bytesBase64Encoded: b64(r.startFrame), mimeType: "image/png" } };
     if (r.endFrame) instance.lastFrame = { bytesBase64Encoded: b64(r.endFrame), mimeType: "image/png" };
-    const base = "https://generativelanguage.googleapis.com/v1beta";
+    const base = (o?.base || "https://generativelanguage.googleapis.com/v1beta").replace(/\/+$/, "");
     const start = await fetch(`${base}/models/${model}:predictLongRunning`, {
       method: "POST", headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
       body: JSON.stringify({ instances: [instance], parameters: { aspectRatio: r.aspect === "9:16" ? "9:16" : "16:9", durationSeconds: r.durationSec >= 7 ? 8 : r.durationSec >= 5 ? 6 : 4 } }),

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { getConfig } from "../config";
+import { record } from "../usage";
 
 /** Pluggable text-to-speech. Default: Microsoft Edge neural voices (free). ElevenLabs / xAI / OpenAI-compatible slots are configured in Admin. */
 export interface TTSProvider { id: string; synth(text: string, voice: string, outFile: string): Promise<void> }
@@ -70,6 +71,7 @@ export function ttsProvider(): TTSProvider {
 
 export async function speak(text: string, voice: string, outFile: string) {
   const p = ttsProvider();
+  record("voice", "Voice", p.id, undefined, 0);
   try { await p.synth(text, voice, outFile); return p.id; }
   catch (e) { if (p.id === "edge") throw e; await edge.synth(text, voice, outFile); return "edge (fallback)"; }
 }

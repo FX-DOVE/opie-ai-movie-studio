@@ -3,7 +3,7 @@ import { friendly, jobPost } from "@/lib/net";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, Clapperboard, Film, ScrollText, Scissors, Settings2, Users } from "lucide-react";
+import { ArrowLeft, Clapperboard, Film, ScrollText, Scissors, Settings2, Users, Workflow } from "lucide-react";
 import type { Project } from "@/lib/types";
 import { Spinner, useToast, Modal, Segmented } from "../ui";
 import { StatusPill } from "../AppShell";
@@ -13,6 +13,7 @@ import { AssetsTab } from "./AssetsTab";
 import { StoryboardTab } from "./StoryboardTab";
 import { VideoTab } from "./VideoTab";
 import { EditTab } from "./EditTab";
+import { PipelineView } from "./PipelineView";
 
 const TABS = [
   { id: "script", label: "Script", icon: ScrollText },
@@ -31,6 +32,8 @@ export function Workspace({ id }: { id: string }) {
   const [busy, setBusy] = useState<Set<string>>(new Set());
   const [voices, setVoices] = useState<{ id: string; label: string }[]>([]);
   const [settings, setSettings] = useState(false);
+  const [pipe, setPipe] = useState(false);
+  const [contrib, setContrib] = useState(false);
   const { toast, node } = useToast();
   const pRef = useRef(p); pRef.current = p;
 
@@ -39,11 +42,12 @@ export function Workspace({ id }: { id: string }) {
     if (!r.ok) return setMissing(true);
     setP(await r.json());
   }, [id]);
-  useEffect(() => { load(); fetch("/api/status").then((r) => r.json()).then((s) => setVoices(s.voices || [])); }, [load]);
+  useEffect(() => { load(); fetch("/api/status").then((r) => r.json()).then((s) => { setVoices(s.voices || []); setContrib(!!s.contributor); }); }, [load]);
 
-  // poll while rendering
+  // poll while rendering, writing, or while automatic continuity / reference reviews run
   useEffect(() => {
-    if (!p || (!["queued", "running"].includes(p.render.status) && !(p.writing && Date.now() - p.writing < 20 * 60_000))) return;
+    const reviewing = !!p && (p.scenes.some((sc) => sc.shots.some((s) => s.continuity?.state === "checking" || s.continuity?.state === "fixing" || s.clipJob?.state === "queued" || s.clipJob?.state === "running")) || p.assets.some((a) => a.refState === "checking" || a.refState === "fixing"));
+    if (!p || (!reviewing && !["queued", "running"].includes(p.render.status) && !(p.writing && Date.now() - p.writing < 20 * 60_000))) return;
     const t = setInterval(load, 1500);
     return () => clearInterval(t);
   }, [p, load]);
@@ -90,6 +94,9 @@ export function Workspace({ id }: { id: string }) {
               {counts[t.id] !== "" && <span className="text-xs text-ink-400">{counts[t.id]}</span>}
             </button>
           ))}
+          <button onClick={() => setPipe(true)} className="mt-2 flex items-center gap-3 rounded-xl px-3 h-10 text-sm text-ink-300 transition hover:bg-white/[0.04] hover:text-white">
+            <Workflow className="h-4 w-4 text-sky-300" /><span className="flex-1 text-left">Pipeline</span><span className="text-[10px] text-sky-300">Built with Meta</span>
+          </button>
         </nav>
         <div className="mt-auto space-y-3 border-t border-white/[0.06] p-4 text-xs text-ink-400">
           <div className="flex flex-wrap gap-1.5">
@@ -107,6 +114,7 @@ export function Workspace({ id }: { id: string }) {
             <Link href="/studio" className="btn-ghost h-9 w-9 px-0" aria-label="Back"><ArrowLeft className="h-4 w-4" /></Link>
             <span className="min-w-0 flex-1 truncate font-semibold">{p.title}</span>
             <StatusPill />
+            <button className="btn-ghost h-9 w-9 px-0" onClick={() => setPipe(true)} aria-label="Pipeline"><Workflow className="h-4 w-4 text-sky-300" /></button>
             <button className="btn-ghost h-9 w-9 px-0" onClick={() => setSettings(true)} aria-label="Settings"><Settings2 className="h-4 w-4" /></button>
           </div>
           <nav className="flex gap-1 overflow-x-auto px-3 pb-2 sm:px-5 [&::-webkit-scrollbar]:hidden">
@@ -115,6 +123,7 @@ export function Workspace({ id }: { id: string }) {
             ))}
           </nav>
         </header>
+        {contrib && <div role="note" className="border-b border-amber-400/20 bg-amber-500/10 px-4 py-1.5 text-center text-[11px] text-amber-200">Contributor mode is on (Admin): text inputs in this project may be used by Meta for training.</div>}
         <main className="flex min-h-0 flex-1 flex-col">
           {tab === "script" && <ScriptTab {...props} openBrainstorm={params.get("brainstorm") === "1"} next={() => setTab("assets")} />}
           {tab === "assets" && <AssetsTab {...props} next={() => setTab("storyboard")} />}
@@ -124,6 +133,9 @@ export function Workspace({ id }: { id: string }) {
         </main>
       </div>
       {node}
+      <Modal open={pipe} onClose={() => setPipe(false)} title="Pipeline · Built with Meta">
+        <PipelineView id={id} go={(t) => { setTab(t as TabId); setPipe(false); load(); }} />
+      </Modal>
       <Modal open={settings} onClose={() => setSettings(false)} title="Project settings">
         <div className="space-y-5">
           <div><span className="label">Title</span><input className="input" defaultValue={p.title} onBlur={(e) => patch({ title: e.target.value })} /></div>

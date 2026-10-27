@@ -29,7 +29,7 @@ export async function POST(req: Request, { params }: Ctx) {
   fs.writeFileSync(out, Buffer.from(await file.arrayBuffer()));
   const v = { id: nanoid(8), url: mediaUrl(out), prompt: "Uploaded reference: " + file.name, createdAt: new Date().toISOString(), source: "upload" as const };
   await db.update(id, (x) => {
-    if (kind === "asset") { const a = x.assets.find((y) => y.id === fd.get("assetId")); if (a) { a.images.push(v); a.activeImage = v.id; } }
+    if (kind === "asset") { const a = x.assets.find((y) => y.id === fd.get("assetId")); if (a) { a.images.push(v); a.activeImage = v.id; a.approved = false; a.refState = undefined; } }
     else if (kind === "frame") {
       const sh = x.scenes.flatMap((s) => s.shots).find((s) => s.id === fd.get("shotId"));
       if (sh) { if (fd.get("which") === "end") { sh.endFrame.push(v); sh.activeEnd = v.id; } else { sh.startFrame.push(v); sh.activeStart = v.id; } }
