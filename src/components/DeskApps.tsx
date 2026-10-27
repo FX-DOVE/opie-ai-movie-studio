@@ -2,6 +2,20 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Folder, Globe, Image as ImageIcon, Moon, SquareTerminal, Film, X } from "lucide-react";
 
+/** Renders children on a virtual 540px-tall desktop and scales it to fill the frame (like a real screen, not a reflowed page). */
+export function Scaled({ children, h = 540 }: { children: React.ReactNode; h?: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState<{ w: number; k: number } | null>(null);
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    const fit = () => { const r = el.getBoundingClientRect(); if (r.height > 0) setBox({ k: r.height / h, w: (r.width / r.height) * h }); };
+    fit(); const ro = new ResizeObserver(fit); ro.observe(el); return () => ro.disconnect();
+  }, [h]);
+  return <div ref={ref} className="absolute inset-0 overflow-hidden">
+    {box && <div className="absolute left-0 top-0 origin-top-left" style={{ width: box.w, height: h, transform: `scale(${box.k})` }}>{children}</div>}
+  </div>;
+}
+
 export type DeskApp = "files" | "terminal" | "browser" | null;
 type Step = { action: string; kind: string };
 type Proj = { id: string; title: string; updatedAt: string; rendered: boolean };
@@ -100,12 +114,13 @@ function Terminal({ steps, goal, onBrowse }: { steps: Step[]; goal?: string; onB
 }
 
 function Browser({ lastScreen, onBrowse }: { lastScreen?: string; onBrowse: (url: string) => Promise<void> }) {
-  const [url, setUrl] = useState(""); const [busy, setBusy] = useState(false);
+  const [url, setUrl] = useState(""); const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
   return <div className="flex h-full flex-col">
-    <form onSubmit={async (e) => { e.preventDefault(); setBusy(true); await onBrowse(url || "https://www.youtube.com").finally(() => setBusy(false)); }} className="flex gap-2 border-b border-white/[0.06] p-2">
+    <form onSubmit={async (e) => { e.preventDefault(); setBusy(true); setErr(""); await onBrowse(url.trim() || "https://www.google.com").catch((x) => setErr((x as Error).message)).finally(() => setBusy(false)); }} className="flex gap-2 border-b border-white/[0.06] p-2">
       <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Search or enter a URL" aria-label="Address" className="h-8 min-w-0 flex-1 rounded-full bg-ink-800 px-3 text-base text-white outline-none sm:text-xs" />
       <button className="btn-brand h-8 px-3 text-xs" disabled={busy}>{busy ? "Opening…" : "Go"}</button>
     </form>
-    <div className="relative min-h-0 flex-1 bg-black">{lastScreen ? <img src={lastScreen} alt="Last page the agent viewed" className="absolute inset-0 h-full w-full object-contain opacity-70" /> : <p className="grid h-full place-items-center p-4 text-center text-xs text-ink-500">A real Chromium browser. Enter a URL — or ask Reel to research something and it opens here.</p>}</div>
+    {err && <p role="alert" className="border-b border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-200">{err}</p>}
+    <div className="relative min-h-0 flex-1 bg-black">{busy ? <p className="grid h-full place-items-center text-xs text-ink-400">Starting Chromium…</p> : lastScreen ? <img src={lastScreen} alt="Last page the agent viewed" className="absolute inset-0 h-full w-full object-contain opacity-70" /> : <p className="grid h-full place-items-center p-4 text-center text-xs text-ink-500">A real Chromium browser. Enter a URL — or ask Reel to research something and it opens here.</p>}</div>
   </div>;
 }

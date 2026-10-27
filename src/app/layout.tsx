@@ -16,9 +16,18 @@ export const metadata: Metadata = {
 };
 export const viewport: Viewport = { themeColor: "#0a0a0b", width: "device-width", initialScale: 1, maximumScale: 1, interactiveWidget: "resizes-content", viewportFit: "cover" };
 
+// Runs before any app code: tag same-origin fetch/XHR so the tunnel never swaps a response for its HTML warning
+// page, and install the service worker that does the same for scripts, images and navigations.
+const TUNNEL = `(function(){try{var H="X-Pinggy-No-Screen",o=location.origin,f=window.fetch;
+window.fetch=function(i,n){try{var u=typeof i==="string"?i:i instanceof URL?i.href:i.url;if(new URL(u,location.href).origin===o){n=Object.assign({},n||{});var h=new Headers(n.headers||(i instanceof Request?i.headers:undefined));h.set(H,"1");n.headers=h}}catch(e){}return f.call(this,i,n)};
+var op=XMLHttpRequest.prototype.open,sd=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.open=function(m,u){this.__rf=new URL(u,location.href).origin===o;return op.apply(this,arguments)};
+XMLHttpRequest.prototype.send=function(){try{if(this.__rf)this.setRequestHeader(H,"1")}catch(e){}return sd.apply(this,arguments)};
+if("serviceWorker"in navigator&&location.protocol==="https:")navigator.serviceWorker.register("/sw.js").catch(function(){})}catch(e){}})();`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${inter.variable} ${display.variable} ${mono.variable}`}>
+    <html lang="en" className={`${inter.variable} ${display.variable} ${mono.variable}`} suppressHydrationWarning>
+      <head><script dangerouslySetInnerHTML={{ __html: TUNNEL }} /></head>
       <body className="min-h-dvh font-sans">{children}<FloatingAgent /><DesktopWidget /></body>
     </html>
   );

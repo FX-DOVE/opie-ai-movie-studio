@@ -46,3 +46,6 @@ export function streamJob(src: ReadableStream<Uint8Array>): Response {
   });
   return new Response(out, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" } });
 }
+
+/** Project ids with a script being written in THIS server process (a stale `writing` flag after a restart is ignored). */
+export const WRITING: Set<string> = ((globalThis as unknown as { __rfWriting?: Set<string> }).__rfWriting ??= new Set());

@@ -1,7 +1,8 @@
 "use client";
 import { usePathname } from "next/navigation";
+import { friendly, H } from "@/lib/net";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { HomeScreen, SleepScreen, type DeskApp } from "./DeskApps";
+import { HomeScreen, Scaled, SleepScreen, type DeskApp } from "./DeskApps";
 import { ArrowLeft, ArrowRight, Bot, Hand, Maximize2, Minimize2, Minus, Monitor, RotateCw, Smartphone, Square, X } from "lucide-react";
 
 /** App-wide "computer" widget: the agent's live virtual desktop in a floating window (Grok-style). */
@@ -87,8 +88,13 @@ export function DesktopWidget() {
   const img = live(s) ? (controlling && frame) || s?.screen : undefined;
   const browse = async (url: string) => {
     const u = /^https?:\/\//.test(url) ? url : /\.[a-z]{2,}/i.test(url) && !url.includes(" ") ? "https://" + url : "https://www.google.com/search?q=" + encodeURIComponent(url);
-    const r = await fetch("/api/research", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ manual: true, url: u }) }).then((x) => x.json()).catch(() => null);
-    if (r?.id) { showDesktop(r.id); setCtrl(true); }
+    const ac = new AbortController(); const to = setTimeout(() => ac.abort(), 25000);
+    try {
+      const x = await fetch("/api/research", { method: "POST", headers: H, body: JSON.stringify({ manual: true, url: u }), signal: ac.signal });
+      const r = await x.json(); if (!r?.id) throw new Error(r?.error || "Couldn’t start the browser");
+      showDesktop(r.id); setId(r.id); setCtrl(true); setAwake(true); setApp("browser");
+    } catch (e) { throw new Error((e as Error).name === "AbortError" ? "The browser took too long to start — tap Go to retry." : friendly(e)); }
+    finally { clearTimeout(to); }
   };
   // map a click on an object-contain image to normalised page coords
   const click = (e: React.MouseEvent<HTMLImageElement>) => {
@@ -105,7 +111,7 @@ export function DesktopWidget() {
   const Screen = ({ cls, cover }: { cls: string; cover?: boolean }) => img
     ? <img src={img} alt="Agent desktop" draggable={false} onClick={click} className={`${cls} select-none ${cover ? "object-cover" : "object-contain"} ${controlling && !rot ? "cursor-pointer" : ""}`} />
     : live(s) ? <div className={`${cls} grid place-items-center text-center text-ink-500`}><div><Monitor className="mx-auto h-9 w-9" /><p className="mt-2 text-xs">Booting browser…</p></div></div>
-    : <div className={`${cls} overflow-hidden`}>{awake ? <HomeScreen app={app} setApp={setApp} steps={s?.steps || []} lastScreen={s?.screen} goal={s?.goal} onBrowse={browse} onSleep={() => { setAwake(false); setApp(null); }} /> : <SleepScreen onWake={() => setAwake(true)} />}</div>;
+    : <div className={`${cls} overflow-hidden`}><Scaled>{awake ? <HomeScreen app={app} setApp={setApp} steps={s?.steps || []} lastScreen={s?.screen} goal={s?.goal} onBrowse={browse} onSleep={() => { setAwake(false); setApp(null); }} /> : <SleepScreen onWake={() => setAwake(true)} />}</Scaled></div>;
 
   const running = s?.status === "running";
   const status = !s ? "idle" : s.status === "running" ? (controlling ? "you" : "live") : s.status;
@@ -182,7 +188,7 @@ export function DesktopWidget() {
       <div ref={fsRef} tabIndex={0} onKeyDown={(e) => { if (e.key === "Escape" && !controlling) exitFs(); else keys(e); }} onMouseMove={poke} onTouchStart={poke}
         onWheel={controlling ? (e) => send({ t: "scroll", dy: Math.max(-800, Math.min(800, e.deltaY * 2)) }) : undefined}
         className="fixed inset-0 z-[80] flex items-center justify-center overflow-hidden bg-black outline-none" style={{ touchAction: "pinch-zoom" }}>
-        <div className={mobile && land ? "fixed inset-0 h-[100dvh] w-screen" : rot ? "absolute left-1/2 top-1/2 h-[100vw] w-[100dvh] -translate-x-1/2 -translate-y-1/2 rotate-90" : mobile ? (img ? "relative aspect-video w-full max-h-full" : "absolute inset-x-0 bottom-0 top-[calc(max(1rem,env(safe-area-inset-top))+4.5rem)]") : "absolute inset-0"}>
+        <div className={mobile && land ? "fixed inset-0 h-[100dvh] w-screen" : rot ? "absolute left-1/2 top-1/2 h-[100vw] w-[100dvh] -translate-x-1/2 -translate-y-1/2 rotate-90" : mobile ? "relative aspect-video w-full max-h-full" : "absolute inset-0"}>
           {Screen({ cls: "absolute inset-0 h-full w-full", cover: mobile && land })}
         </div>
         {mobile && land ? <div className={`transition-opacity duration-300 ${bar ? "opacity-100" : "pointer-events-none opacity-0"}`}>

@@ -1,3 +1,4 @@
+import { WRITING } from "@/lib/jobs";
 import { NextResponse } from "next/server";
 import fs from "node:fs";
 import { db, projectMediaDir } from "@/lib/db";
@@ -9,6 +10,7 @@ const EDITABLE = ["title", "mode", "format", "aspect", "style", "customStyle", "
 
 export async function GET(_: Request, { params }: Ctx) {
   const p = db.getProject((await params).id);
+  if (p?.writing && !WRITING.has(p.id)) p.writing = undefined;
   return p ? NextResponse.json(p) : NextResponse.json({ error: "not found" }, { status: 404 });
 }
 export async function PATCH(req: Request, { params }: Ctx) {
