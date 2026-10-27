@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 import { db, MEDIA_DIR } from "./db";
 import { getConfig } from "./config";
 import { FORMATS, type Project } from "./types";
+import { DEFAULT_GENRE, GENRES, isGenre } from "./genres";
 import { activeJobs, purgeProjectJobs } from "./jobs";
 import { dropProjectClips } from "./render";
 import { r2DeletePrefix } from "./storage";
@@ -18,8 +19,9 @@ export function newProject(b: Record<string, any>, ownerId: string): Project { /
     id: nanoid(10), ownerId, title: String(b.title || "Untitled project").slice(0, 120), mode: ["drama", "documentary", "ad"].includes(b.mode) ? b.mode : "drama",
     format, aspect: ["9:16", "16:9", "1:1", "4:5"].includes(b.aspect) ? b.aspect : FORMATS[format].aspect,
     style: ["realistic", "pixar", "cartoon", "anime", "custom"].includes(b.style) ? b.style : "realistic", customStyle: b.customStyle || "",
+    filmStyle: isGenre(b.filmStyle) ? b.filmStyle : DEFAULT_GENRE, filmStyleManual: isGenre(b.filmStyle) && b.filmStyle !== DEFAULT_GENRE ? true : b.filmStyleManual === true,
     outputType: b.outputType === "video" ? "video" : "image", idea: String(b.idea || ""), script: String(b.script || ""), brainstorm: [], assets: [], scenes: [], bible: "",
-    narratorVoice: getConfig("DEFAULT_NARRATOR") || "en-US-AndrewNeural", music: b.mode === "ad" ? "upbeat" : b.mode === "documentary" ? "ambient" : "tension", subtitles: true,
+    narratorVoice: getConfig("DEFAULT_NARRATOR") || "en-US-AndrewNeural", music: b.mode === "ad" ? "upbeat" : b.mode === "documentary" ? "ambient" : GENRES[isGenre(b.filmStyle) ? b.filmStyle : DEFAULT_GENRE].music, subtitles: true,
     render: { status: "idle", progress: 0, message: "", updatedAt: t }, editLog: [], createdAt: t, updatedAt: t,
   };
 }

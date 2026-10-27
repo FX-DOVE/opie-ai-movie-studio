@@ -1,5 +1,6 @@
 "use client";
 import { friendly } from "@/lib/net";
+import { FilmStylePicker } from "./FilmStylePicker";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -78,6 +79,8 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [aspect, setAspect] = useState("9:16");
   const [style, setStyle] = useState("realistic");
   const [customStyle, setCustom] = useState("");
+  const [filmStyle, setFilm] = useState("blockbuster");
+  const [filmPicked, setPicked] = useState(false);
   const [outputType, setOut] = useState("image");
   const [start, setStart] = useState<"idea" | "script" | "brainstorm">("idea");
   const [title, setTitle] = useState("");
@@ -90,7 +93,7 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
     setBusy(true); setErr("");
     let p: { id: string; error?: string };
     try {
-      const r = await fetch("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title || undefined, mode, format, aspect, style, customStyle, outputType, idea, script: start === "script" ? script : "" }) });
+      const r = await fetch("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title || undefined, mode, format, aspect, style, customStyle, filmStyle, filmStyleManual: filmPicked, outputType, idea, script: start === "script" ? script : "" }) });
       p = await r.json(); if (!r.ok) throw new Error(p.error || "Couldn’t create the project");
     } catch (e) { setErr(friendly(e)); setBusy(false); return; }
     // the script is written in the background (detached job) — open the project right away; the Script tab shows progress
@@ -121,9 +124,13 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
             <Segmented value={aspect} onChange={setAspect} options={["9:16", "16:9", "1:1", "4:5"].map((a) => ({ value: a, label: <><span className="inline-block border border-current rounded-[2px]" style={{ aspectRatio: ratio(a), height: 11 }} />{a}</> }))} />
           </div>
         </div>
+        {mode === "drama" && <div>
+          <span className="label">Film style</span>
+          <FilmStylePicker value={filmStyle} onChange={(v) => { setFilm(v); setPicked(true); }} />
+        </div>}
         <div>
           <span className="label">Visual style</span>
-          <Segmented value={style} onChange={setStyle} options={[{ value: "realistic", label: "Realistic" }, { value: "pixar", label: "Pixar / 3D" }, { value: "cartoon", label: "Cartoon" }, { value: "anime", label: "Anime" }, { value: "custom", label: "Custom…" }]} />
+          <Segmented value={style} onChange={setStyle} options={[{ value: "realistic", label: "Realistic" }, { value: "pixar", label: "3D animated" }, { value: "cartoon", label: "Cartoon" }, { value: "anime", label: "Anime" }, { value: "custom", label: "Custom…" }]} />
           {style === "custom" && <input className="input mt-2" placeholder="e.g. 1970s Nollywood VHS, warm grain" value={customStyle} onChange={(e) => setCustom(e.target.value)} />}
         </div>
         <div>

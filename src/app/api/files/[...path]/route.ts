@@ -5,7 +5,7 @@ import { currentUser } from "@/lib/auth";
 import { remoteUrl } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
-const TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".mp3": "audio/mpeg", ".mp4": "video/mp4", ".srt": "text/plain" };
+const TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".mp3": "audio/mpeg", ".mp4": "video/mp4", ".srt": "text/plain; charset=utf-8", ".vtt": "text/vtt; charset=utf-8" };
 
 export async function GET(req: Request, { params }: { params: Promise<{ path: string[] }> }) {
   const rel = (await params).path.join("/");

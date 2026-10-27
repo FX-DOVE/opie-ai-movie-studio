@@ -56,6 +56,12 @@ export interface Shot {
   durationLocked?: boolean;
   /** which TTS engine voiced this line ("none" = TTS unavailable) */
   audioProvider?: string;
+  /** genre beat type from the film-style skill (establish, action, impact, dialogue, reaction…) */
+  beat?: string;
+  /** screen direction / axis note, e.g. "Ada frame-left looking right; moves L→R" */
+  screen?: string;
+  /** automatic dialogue-clarity check of the voiced line (speech-to-text round trip) */
+  clarity?: { audio?: string; ok: boolean; wer?: number; heard?: string; wps?: number; issues: string[]; attempts: number; checkedAt: string; source: string };
 }
 
 export interface Scene { id: string; heading: string; summary: string; shots: Shot[] }
@@ -64,7 +70,7 @@ export interface Idea { title: string; logline: string; hook?: string; beats?: s
 export interface ChatMsg { role: "user" | "assistant"; content: string; at: string; provider?: string; ideas?: Idea[]; kind?: "note" | "research" }
 export interface ResearchNote { id: string; goal: string; notes: string; at: string; provider?: string }
 
-export interface RenderJob { status: "idle" | "queued" | "running" | "done" | "error"; progress: number; message: string; url?: string; updatedAt: string; review?: string; warnings?: string[]; jobId?: string; startedAt?: string; attempts?: number }
+export interface RenderJob { status: "idle" | "queued" | "running" | "done" | "error"; progress: number; message: string; url?: string; updatedAt: string; review?: string; warnings?: string[]; srtUrl?: string; loudness?: number; jobId?: string; startedAt?: string; attempts?: number }
 
 export interface MemoryNote { id: string; text: string; category: "genre" | "pacing" | "tone" | "visual" | "characters" | "wardrobe" | "voice" | "rejects" | "other"; at: string; source?: string; hits?: number }
 export interface UserMemory { enabled: boolean; notes: MemoryNote[]; updatedAt?: string }
@@ -80,6 +86,12 @@ export interface Project {
   aspect: Aspect;
   style: VisualStyle;
   customStyle?: string;
+  /** film style / genre skill id (src/lib/genres); default "blockbuster" */
+  filmStyle?: string;
+  /** true once the user picked the film style; otherwise Muse may pick it from the idea/brainstorm */
+  filmStyleManual?: boolean;
+  /** "<id>@<version>" of the genre skill that last shaped the script/storyboard */
+  genreSkill?: string;
   outputType: OutputType;
   /** Video mode: provider id from Admin → Video providers ("auto" = fallback order) */
   videoProvider?: string;
@@ -109,7 +121,7 @@ export const FORMATS: Record<Format, { label: string; aspect: Aspect; maxSec: nu
 
 export const STYLES: Record<VisualStyle, string> = {
   realistic: "photorealistic cinematic film still, natural skin texture, anamorphic lens, shallow depth of field",
-  pixar: "Pixar-style 3D animation, soft global illumination, expressive stylised characters",
+  pixar: "Feature-quality 3D animation, soft global illumination, expressive stylised characters",
   cartoon: "2D cartoon illustration, bold clean outlines, flat vibrant colours",
   anime: "anime key visual, cel shading, detailed backgrounds, dramatic lighting",
   custom: "",

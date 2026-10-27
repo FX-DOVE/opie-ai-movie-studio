@@ -6,7 +6,9 @@ import { ffmpeg, probeDuration } from "./ffmpeg";
 import { speak } from "./providers/tts";
 import { chain, estimate, listProviders, runProvider } from "./providers/videoProviders";
 import { chat, llmLive, structured } from "./providers/meta";
-import { findShot } from "./studio";
+import { findShot, genreFor } from "./studio";
+import { genreBrief } from "./genres";
+import { MAX_WER, MAX_WPS, slowDown, speakable, sttOn, transcribe, wer } from "./dialogue";
 import { record, withStep } from "./usage";
 import { getConfig } from "./config";
 import { aspectSize, type Project, type Shot } from "./types";
@@ -24,16 +26,53 @@ export function fitDuration(audioSec: number) { return Math.max(2, Math.round((a
 const SILENT_MAX = 3.5;
 
 /** Voice every line: narration with the narrator voice, dialogue with each character's voice. */
-export async function voiceShot(p: Project, shotId: string) {
+export async function voiceShot(p: Project, shotId: string, opts: { spoken?: string; tempo?: number } = {}) {
   const sh = findShot(p, shotId);
   const text = sh.narration || sh.dialogue;
   if (!text) return null;
   const voice = sh.narration ? p.narratorVoice : voiceFor(p, sh.speaker);
   const file = path.join(projectMediaDir(p.id), `voice-${sh.id}-${Date.now()}.mp3`);
-  const provider = await speak(text, voice, file);
-  const dur = await probeDuration(file);
-  await db.update(p.id, (x) => { const t = findShot(x, shotId); t.audioUrl = mediaUrl(file); t.audioProvider = provider; if (!t.durationLocked || dur + 0.5 > t.durationSec) t.durationSec = fitDuration(dur); });
+  const provider = await speak(opts.spoken || text, voice, file);
+  let dur = await probeDuration(file);
+  if (opts.tempo && opts.tempo < 1) dur = await slowDown(file, opts.tempo);
+  const prev = sh.audioUrl && mediaPath(sh.audioUrl);
+  await db.update(p.id, (x) => { const t = findShot(x, shotId); t.audioUrl = mediaUrl(file); t.audioProvider = provider; if (!t.durationLocked || dur + 0.5 > t.durationSec) t.durationSec = fitDuration(dur); t.clarity = undefined; });
+  if (prev && prev !== file) fs.promises.unlink(prev).catch(() => {});
   return { url: mediaUrl(file), provider, duration: dur };
+}
+
+/**
+ * Dialogue clarity check for one voiced shot: pace (words/second) and a speech-to-text round trip (word error rate).
+ * Failures are fixed automatically — rushed lines are slowed, misheard lines re-voiced with speakable text (numbers
+ * spelled, symbols spoken) and then slower — and the shot is re-fitted so speech never runs into the next shot.
+ */
+export async function clarityShot(pid: string, shotId: string) {
+  const issues: string[] = []; let attempts = 0; let werV: number | undefined; let heard: string | undefined; let wps = 0; let source = "pace";
+  for (;;) {
+    const p = db.getProject(pid)!; const sh = findShot(p, shotId);
+    const text = sh.narration || sh.dialogue; if (!text || !sh.audioUrl || !fs.existsSync(mediaPath(sh.audioUrl))) return null;
+    const file = mediaPath(sh.audioUrl);
+    const dur = await probeDuration(file);
+    wps = +(text.split(/\s+/).length / Math.max(0.3, dur)).toFixed(2);
+    issues.length = 0;
+    if (wps > MAX_WPS) issues.push(`rushed (${wps} words/s)`);
+    if (sttOn()) {
+      try {
+        const names = [sh.speaker, ...p.assets.filter((a) => a.kind === "character").map((a) => a.name)].filter(Boolean) as string[];
+        heard = await transcribe(file, names); werV = wer(text, heard); source = "xAI speech-to-text";
+        if (werV > MAX_WER) issues.push(`unclear (WER ${(werV * 100).toFixed(0)}%: heard "${heard.slice(0, 80)}")`);
+      } catch (e) { source = `pace only (STT: ${(e as Error).message.slice(0, 60)})`; }
+    }
+    if (!issues.length || attempts >= 2) {
+      const ok = !issues.length;
+      await db.update(pid, (x) => { const t = findShot(x, shotId); t.clarity = { audio: t.audioUrl, ok, wer: werV, heard, wps, issues: [...issues], attempts, checkedAt: now(), source }; if (!t.durationLocked) t.durationSec = Math.max(t.durationSec, fitDuration(dur)); });
+      return { ok, issues, wer: werV, wps, attempts };
+    }
+    attempts++;
+    // fix 1: speakable text (+ slow if rushed); fix 2: speakable and 12% slower
+    const tempo = attempts === 2 ? 0.88 : wps > MAX_WPS ? Math.max(0.8, 3.0 / wps) : undefined;
+    await voiceShot(p, shotId, { spoken: speakable(text), tempo });
+  }
 }
 
 export async function voiceAll(p: Project) {
@@ -43,6 +82,11 @@ export async function voiceAll(p: Project) {
 }
 
 /** Generate one clip now: the project's provider first, then the Admin fallback order (demo motion last), with retries. */
+/** Video-provider prompt: camera + action + screen direction + the genre motion grammar and its AI-video countermeasures. */
+export function clipPrompt(p: Project, sh: Shot) {
+  const g = genreFor(p);
+  return [`${sh.camera}. ${sh.description}.`, sh.screen ? `Screen direction: ${sh.screen}.` : "", sh.dialogue ? `${sh.speaker} speaks one short line; lips move naturally, others listen.` : "", "Keep faces, wardrobe and props identical to the start frame; one continuous action; no new people; no on-screen text.", g ? genreBrief(g, "video") : ""].filter(Boolean).join(" ").slice(0, 1400);
+}
 export async function clipShot(p: Project, shotId: string, onJob?: (j: NonNullable<Shot["clipJob"]>) => unknown) {
   const sh = findShot(p, shotId);
   const start = sh.startFrame.find((v) => v.id === sh.activeStart);
@@ -56,7 +100,7 @@ export async function clipShot(p: Project, shotId: string, onJob?: (j: NonNullab
       const est = estimate(prov, sh.durationSec);
       await onJob?.({ state: "running", provider: prov.name, attempt, progress: 2, estUsd: est.usd });
       try {
-        await runProvider(prov, { startFrame: mediaPath(start.url), endFrame: end ? mediaPath(end.url) : undefined, prompt: `${sh.camera}. ${sh.description}`, aspect: p.aspect, durationSec: sh.durationSec, outFile: file }, (pct) => { void onJob?.({ state: "running", provider: prov.name, attempt, progress: Math.round(pct), estUsd: est.usd }); });
+        await runProvider(prov, { startFrame: mediaPath(start.url), endFrame: end ? mediaPath(end.url) : undefined, prompt: clipPrompt(p, sh), aspect: p.aspect, durationSec: sh.durationSec, outFile: file }, (pct) => { void onJob?.({ state: "running", provider: prov.name, attempt, progress: Math.round(pct), estUsd: est.usd }); });
         record("video", prov.type === "mock" ? "Demo" : prov.name, prov.model, undefined, 0, est.usd);
         await db.update(p.id, (x) => { const t = findShot(x, shotId); t.clipUrl = mediaUrl(file); t.clipProvider = prov.name; });
         return { url: mediaUrl(file), provider: prov.id, name: prov.name, attempt, errors };
@@ -107,6 +151,15 @@ export function videoEstimate(p: Project) {
   return { provider: prov?.name, shots: shots.length, seconds: secs, usd: priced ? +usd.toFixed(2) : undefined };
 }
 
+/** Subtitle cues: ≤ 42 characters per line, ≤ 2 lines per cue; long lines split across cues in proportion to their length. */
+export function cues(text: string, a: number, b: number) {
+  const words = text.trim().split(/\s+/); const lines: string[] = []; let cur = "";
+  for (const w of words) { if ((cur + " " + w).trim().length > 42 && cur) { lines.push(cur); cur = w; } else cur = (cur + " " + w).trim(); }
+  if (cur) lines.push(cur);
+  const groups: string[] = []; for (let i = 0; i < lines.length; i += 2) groups.push(lines.slice(i, i + 2).join("\n"));
+  const total = groups.reduce((n, g) => n + g.length, 0) || 1; let t = a;
+  return groups.map((g) => { const d = ((b - a) * g.length) / total; const c = { a: t, b: t + d - (groups.length > 1 ? 0.04 : 0), text: g }; t += d; return c; });
+}
 function srtTime(t: number) {
   const ms = Math.round(t * 1000); const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000), s = Math.floor((ms % 60000) / 1000);
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")},${String(ms % 1000).padStart(3, "0")}`;
@@ -137,6 +190,13 @@ export async function renderProject(projectId: string) {
       try { await voiceShot(db.getProject(p.id)!, lines[i].id); }
       catch (e) { warnings.push(`Shot ${lines[i].index + 1}: voice unavailable (${(e as Error).message.slice(0, 140)}) — rendered without narration. Tap Re-render to retry.`); }
     }
+    // dialogue clarity: every voiced line is checked (pace + speech-to-text round trip) and auto-fixed before the cut
+    const voiced = shotsOf(db.getProject(p.id)!).filter((sh) => sh.audioUrl && (sh.narration || sh.dialogue) && sh.clarity?.audio !== sh.audioUrl);
+    for (let i = 0; i < voiced.length; i++) {
+      await setRender(p.id, { progress: 10 + Math.round((i / voiced.length) * 4), message: `Checking dialogue clarity ${i + 1}/${voiced.length}` });
+      await clarityShot(p.id, voiced[i].id).catch(() => null);
+    }
+    for (const sh of shotsOf(db.getProject(p.id)!)) if (sh.clarity && !sh.clarity.ok) warnings.push(`Shot ${sh.index + 1}: line may be hard to understand (${sh.clarity.issues.join("; ")}) — consider rewording it.`);
     if (warnings.length) await setRender(p.id, { warnings });
     p = db.getProject(p.id)!;
     const { w, h } = aspectSize(p.aspect, 1280);
@@ -154,8 +214,9 @@ export async function renderProject(projectId: string) {
       const adur = audio ? await probeDuration(audio) : 0;
       const trimS = sh.trimStart || 0;
       // fit each shot to its voice line (unless the user locked a length), so narration covers the cut instead of dead air
-      const base = sh.durationLocked ? Math.max(sh.durationSec, adur + 0.5) : adur ? fitDuration(adur) : (sh.narration || sh.dialogue) ? sh.durationSec : Math.min(sh.durationSec, SILENT_MAX);
-      const dur = +Math.max(2, base - trimS - (sh.trimEnd || 0)).toFixed(2);
+      const base = sh.durationLocked ? Math.max(sh.durationSec, adur + 0.6) : adur ? fitDuration(adur) : (sh.narration || sh.dialogue) ? sh.durationSec : Math.min(sh.durationSec, SILENT_MAX);
+      // the 250 ms lead-in + the whole line + a breath must fit, so one line never runs into the next (no overlapping speech)
+      const dur = +Math.max(2, base - trimS - (sh.trimEnd || 0), adur ? adur + 0.6 : 0).toFixed(2);
       const out = path.join(work, `seg${String(i).padStart(3, "0")}.mp4`);
       const vIn: string[] = [];
       let vf: string;
@@ -182,8 +243,8 @@ export async function renderProject(projectId: string) {
       const af = audio ? `[${aIdx}:a]aresample=44100,aformat=channel_layouts=stereo,adelay=250|250,apad,atrim=duration=${dur}[a]` : `[${aIdx}:a]atrim=duration=${dur}[a]`;
       await ffmpeg([...vIn, ...aIn, "-filter_complex", `${vf};${af}`, "-map", "[v]", "-map", "[a]", "-t", String(dur), "-r", String(fps), "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-c:a", "aac", "-b:a", "160k", out]);
       segs.push(out);
-      const line = sh.narration || (sh.dialogue ? `${sh.speaker}: ${sh.dialogue}` : "");
-      if (line) subs.push(`${subs.length + 1}\n${srtTime(t + 0.25)} --> ${srtTime(t + Math.max(1, Math.min(dur, adur + 0.25)))}\n${line}\n`);
+      const line = sh.narration || sh.dialogue || "";
+      if (line) for (const c of cues(line, t + 0.25, t + Math.max(1, Math.min(dur - 0.05, adur + 0.35)))) subs.push(`${subs.length + 1}\n${srtTime(c.a)} --> ${srtTime(c.b)}\n${c.text}\n`);
       t += dur;
     }
     await setRender(p.id, { progress: 80, message: "Joining shots" });
@@ -198,10 +259,20 @@ export async function renderProject(projectId: string) {
     const args = ["-i", joined];
     let fc = "";
     let amap = "0:a";
-    if (MUSIC[p.music]) { args.push("-f", "lavfi", "-t", String(t), "-i", MUSIC[p.music]); fc += `[1:a]volume=0.5,afade=t=in:d=1.5,afade=t=out:st=${Math.max(0, t - 2)}:d=2[m];[0:a][m]amix=inputs=2:duration=first:normalize=0[a]`; amap = "[a]"; }
+    // music is ducked under speech (sidechain on the voice track), then the mix is loudness-normalised to -16 LUFS / -1.5 dBTP
+    const LOUD = "loudnorm=I=-16:TP=-1.5:LRA=11,aresample=44100";
+    if (MUSIC[p.music]) { args.push("-f", "lavfi", "-t", String(t), "-i", MUSIC[p.music]); fc += `[0:a]asplit=2[vo][key];[1:a]volume=0.45,afade=t=in:d=1.5,afade=t=out:st=${Math.max(0, t - 2)}:d=2[m];[m][key]sidechaincompress=threshold=0.015:ratio=10:attack=15:release=350:makeup=1[md];[vo][md]amix=inputs=2:duration=first:normalize=0,${LOUD}[a]`; }
+    else fc += `[0:a]${LOUD}[a]`;
+    amap = "[a]";
+    const subIdx = args.filter((x) => x === "-i").length;
+    if (subs.length) args.push("-i", srt);
     const vfilter = p.subtitles && subs.length ? `subtitles=${srt.replace(/:/g, "\\:")}:force_style='FontName=DejaVu Sans,FontSize=${p.aspect === "16:9" ? 18 : 12},PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BorderStyle=1,Outline=2,Shadow=0,MarginV=${p.aspect === "16:9" ? 28 : 60}'` : "";
     if (vfilter) fc = (fc ? fc + ";" : "") + `[0:v]${vfilter}[v]`;
-    await ffmpeg([...args, ...(fc ? ["-filter_complex", fc] : []), "-map", vfilter ? "[v]" : "0:v", "-map", amap, "-c:v", vfilter ? "libx264" : "copy", ...(vfilter ? ["-preset", "veryfast", "-crf", "21"] : []), "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", final]);
+    // subtitles: burned in when on, and always a soft (toggleable) track + a sidecar .srt
+    await ffmpeg([...args, ...(fc ? ["-filter_complex", fc] : []), "-map", vfilter ? "[v]" : "0:v", "-map", amap, ...(subs.length ? ["-map", `${subIdx}:s`, "-c:s", "mov_text", "-metadata:s:s:0", "language=eng"] : []), "-c:v", vfilter ? "libx264" : "copy", ...(vfilter ? ["-preset", "veryfast", "-crf", "21"] : []), "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", final]);
+    const srtOut = final.replace(/\.mp4$/, ".srt");
+    if (subs.length) { fs.copyFileSync(srt, srtOut); fs.writeFileSync(srtOut.replace(/\.srt$/, ".vtt"), "WEBVTT\n\n" + subs.join("\n").replace(/(\d\d:\d\d:\d\d),(\d\d\d)/g, "$1.$2")); }
+    await setRender(p.id, { srtUrl: subs.length ? mediaUrl(srtOut) : undefined });
     await setRender(p.id, { progress: 95, message: "Muse is reviewing the cut" });
     const review = await reviewCut(db.getProject(p.id)!, t);
     const speech = (await Promise.all(list.map((s) => s.audioUrl && fs.existsSync(mediaPath(s.audioUrl)) ? probeDuration(mediaPath(s.audioUrl)) : 0))).reduce((a, b) => a + b, 0);

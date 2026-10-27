@@ -46,7 +46,7 @@ const shots = (p: Project) => p.scenes.flatMap((s) => s.shots);
 export function state(p?: Project) {
   if (!p) return "No project open.";
   const sh = shots(p);
-  return `Project "${p.title}" (id ${p.id}) · ${p.mode} · ${FORMATS[p.format]?.label} ${p.aspect} · style ${p.style} · output ${p.outputType}\nidea: ${p.idea ? p.idea.slice(0, 160) : "(none)"} · script: ${p.script ? p.script.split(/\s+/).length + " words" : "(none)"} · assets: ${p.assets.length} (${p.assets.filter((a) => a.activeImage).length} with images) · shots: ${sh.length} (${sh.filter((s) => s.activeStart).length} with frames, ${sh.filter((s) => s.audioUrl).length} voiced) · research notes: ${(p.research || []).length} · render: ${p.render.status}`;
+  return `Project "${p.title}" (id ${p.id}) · ${p.mode} · ${FORMATS[p.format]?.label} ${p.aspect} · style ${p.style}${p.mode === "drama" || p.filmStyleManual ? ` · film style ${p.filmStyle || "blockbuster"}${p.filmStyleManual ? "" : " (auto)"}` : ""} · output ${p.outputType}\nidea: ${p.idea ? p.idea.slice(0, 160) : "(none)"} · script: ${p.script ? p.script.split(/\s+/).length + " words" : "(none)"} · assets: ${p.assets.length} (${p.assets.filter((a) => a.activeImage).length} with images) · shots: ${sh.length} (${sh.filter((s) => s.activeStart).length} with frames, ${sh.filter((s) => s.audioUrl).length} voiced) · research notes: ${(p.research || []).length} · render: ${p.render.status}`;
 }
 
 type Tool = { desc: string; req?: string[]; run: (c: Conv, a: Record<string, unknown>, emit: (o: unknown) => void) => Promise<string> };
@@ -54,8 +54,12 @@ const shotAt = (p: Project, a: Record<string, unknown>) => { const all = shots(p
 export const TOOLS: Record<string, Tool> = {
   list_projects: { desc: "{} — list existing projects", run: async (c) => db.listProjects(c.ownerId === "admin" ? undefined : c.ownerId).slice(0, 10).map((p) => `${p.id}: ${p.title} (${p.mode}, ${p.format})`).join("\n") || "none" },
   open_project: { req: ["projectId"], desc: '{"projectId"} — switch to an existing project', run: async (c, a) => { const p = db.getProject(String(a.projectId)); if (!p || !owns(c, p)) throw new Error("not found"); c.projectId = p.id; return state(p); } },
-  create_project: { req: ["title","mode","format"], desc: '{"title","mode":"drama|documentary|ad","format":"yt_shorts|tiktok|fb_reels|yt_long","aspect":"9:16|16:9|1:1|4:5","style":"realistic|pixar|cartoon|anime","outputType":"image|video","idea"}', run: async (c, a, emit) => {
+  create_project: { req: ["title","mode","format"], desc: '{"title","mode":"drama|documentary|ad","format":"yt_shorts|tiktok|fb_reels|yt_long","aspect":"9:16|16:9|1:1|4:5","style":"realistic|pixar|cartoon|anime","filmStyle":"blockbuster|martial_comedy|commando|war_epic|kdrama_romcom|epic_fantasy|prison_break|nollywood (only if the user named a genre)","outputType":"image|video","idea"}', run: async (c, a, emit) => {
     const { createProject } = await import("./projects"); const p = await createProject(a, c.ownerId || "admin"); c.projectId = p.id; emit({ type: "project", id: p.id, title: p.title }); return state(p); } },
+  set_film_style: { req: ["filmStyle"], desc: '{"filmStyle":"blockbuster|martial_comedy|commando|war_epic|kdrama_romcom|epic_fantasy|prison_break|nollywood"} — lock the project\'s film style (genre skill: script beats, shot grammar, look, music, review)', run: async (c, a) => {
+    const { isGenre, GENRES } = await import("./genres"); const id = String(a.filmStyle); if (!isGenre(id)) throw new Error("unknown film style");
+    const p = proj(c); const { buildBible } = await import("./studio");
+    const n = await db.update(p.id, (x) => { x.filmStyle = id; x.filmStyleManual = true; if (x.music !== "none") x.music = GENRES[id].music; x.bible = buildBible(x); }); return state(n); } },
   brainstorm: { req: ["message"], desc: '{"message"} — brainstorm story/ad ideas in the project (returns idea cards)', run: async (c, a) => {
     const p = proj(c); const rd = brainstormStream(p, String(a.message || p.idea || p.title)).getReader(); const dec = new TextDecoder(); let buf = "", done: { message?: { content: string; ideas?: Idea[] } } = {};
     for (;;) { const { value, done: d } = await rd.read(); if (d) break; buf += dec.decode(value); }

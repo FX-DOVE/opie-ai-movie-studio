@@ -10,6 +10,8 @@ import { getConfig, llmLabel } from "./config";
 import { withStep } from "./usage";
 import { characterSheetPrompt, locationSheetPrompt, mockSpec, propSheetPrompt, specLine, specSchema, type CharacterSpec, type LocationSpec, type PropSpec } from "./refsheet";
 import { parseScenes, NARRATOR_RE } from "./screenplay";
+import { DEFAULT_GENRE, GENRES, GENRE_IDS, detectGenre, genreBrief, genreOf, isGenre, type GenrePurpose, type GenreSkill } from "./genres";
+import { normalizeDialogue } from "./dialogue";
 import { FORMATS, MODES, STYLES, isApproved, isDraft, type Asset, type ChatMsg, type ImageVersion, type Project, type Scene, type Shot } from "./types";
 
 const now = () => new Date().toISOString();
@@ -18,8 +20,29 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 export function styleText(p: Project) {
   return p.style === "custom" ? p.customStyle || "cinematic" : STYLES[p.style];
 }
-function ctx(p: Project, purpose: "director" | "script" = "director") {
-  return `Mode: ${MODES[p.mode]}. Format: ${FORMATS[p.format].label} (${p.aspect}, max ${FORMATS[p.format].maxSec}s). Visual style: ${styleText(p)}.${memoryBrief(p.ownerId, purpose)}`;
+/** The film-style (genre) skill this project runs on: always for drama, and for documentary/ad only when the user picked one. */
+export function genreFor(p: Project): GenreSkill | undefined {
+  return p.mode === "drama" || p.filmStyleManual ? genreOf(p) : undefined;
+}
+/** Shared context for every agent: mode, format, look, the genre skill slice for this agent, then the user's learned taste on top. */
+function ctx(p: Project, purpose: "director" | "script" = "director", skill?: GenrePurpose) {
+  const g = skill && genreFor(p);
+  return `Mode: ${MODES[p.mode]}. Format: ${FORMATS[p.format].label} (${p.aspect}, max ${FORMATS[p.format].maxSec}s). Visual style: ${styleText(p)}.${g ? `\n\n${genreBrief(g, skill!)}\n\n` : ""}${memoryBrief(p.ownerId, purpose)}${g ? "\n(The user's learned preferences above override the genre defaults where they conflict.)" : ""}`;
+}
+
+/** Muse Spark picks the film style from the idea + brainstorm (+ the user's learned taste) unless the user chose one. */
+export async function pickGenre(p: Project, extra = ""): Promise<GenreSkill | undefined> {
+  if (p.filmStyleManual || p.mode !== "drama") return genreFor(p);
+  const text = [p.title, p.idea, extra, ...p.brainstorm.slice(-6).map((m) => m.content)].filter(Boolean).join("\n").slice(0, 4000);
+  if (!text.trim()) return genreOf(p);
+  const guess = detectGenre(text);
+  const { data } = await structured<{ id: string; why?: string }>(
+    `You classify a film idea into exactly one house film-style skill. Options:\n${GENRE_IDS.map((id) => `- ${id}: ${GENRES[id].label} — ${GENRES[id].short}`).join("\n")}\nIf nothing clearly fits, choose "${DEFAULT_GENRE}".${memoryBrief(p.ownerId, "script", 4)}\nReturn {"id": one of the ids, "why": short reason}.`,
+    text, () => ({ id: guess || p.filmStyle || DEFAULT_GENRE }), undefined, "general",
+  ).catch(() => ({ data: { id: guess || p.filmStyle || DEFAULT_GENRE } }));
+  const id = isGenre(data.id) ? data.id : guess || DEFAULT_GENRE;
+  if (id !== p.filmStyle) await db.update(p.id, (x) => { if (!x.filmStyleManual) { x.filmStyle = id; if (x.music !== "none") x.music = GENRES[id].music; } });
+  return GENRES[id];
 }
 
 // ───────────────────────── Script ─────────────────────────
@@ -119,8 +142,10 @@ FADE OUT.`;
 
 export async function writeScript(p: Project, instruction: string) {
   const hasScript = p.script.trim().length > 40;
+  if (!hasScript) { await pickGenre(p, instruction); p = db.getProject(p.id) || p; }
+  const g = genreFor(p);
   const { data, source } = await structured<{ title: string; script: string }>(
-    `You are an award-winning screenwriter for an AI movie studio. ${ctx(p, "script")} Write in standard screenplay format: a first line "TITLE: ...", scene headings (INT./EXT. LOCATION - TIME), action lines, CHARACTER names in caps on their own line, optional (parentheticals), dialogue, and transitions like CUT TO:. ${p.mode !== "drama" ? "Use NARRATOR for voiceover lines." : ""} Describe characters vividly on first appearance (age, face, hair, skin tone, wardrobe colours, makeup, accessories) so continuity can be tracked. Keep runtime within the format limit. Return {"title": string, "script": string}.`,
+    `You are an award-winning screenwriter for an AI movie studio. ${ctx(p, "script", "script")} Write in standard screenplay format: a first line "TITLE: ...", scene headings (INT./EXT. LOCATION - TIME), action lines, CHARACTER names in caps on their own line, optional (parentheticals), dialogue, and transitions like CUT TO:. ${p.mode !== "drama" ? "Use NARRATOR for voiceover lines." : ""} Describe characters vividly on first appearance (age, face, hair, skin tone, wardrobe colours, makeup, accessories) so continuity can be tracked. Keep runtime within the format limit.${g ? ` Follow the FILM STYLE SKILL: its beat structure, archetypes, dialogue voice and pacing. Dialogue lines: one speaker each, 4–14 words, no parentheticals inside lines.` : ""} Never use existing film titles, franchise names, characters or real people. Return {"title": string, "script": string}.`,
     hasScript ? `Current script:\n${p.script}\n\nRevise it according to: ${instruction || "tighten and improve it"}` : `Idea: ${instruction || p.idea}${p.brainstorm.length ? `\n\nBrainstorm notes:\n${p.brainstorm.slice(-6).map((m) => m.content).join("\n")}` : ""}${(p.research || []).length ? `\n\nResearch notes:\n${(p.research || []).slice(-2).map((r) => r.notes.slice(0, 1500)).join("\n---\n")}` : ""}`,
     () => {
       if (hasScript) {
@@ -202,7 +227,8 @@ export function buildBible(p: Project) {
     const a = p.assets.filter((x) => x.kind === k);
     return a.length ? `${t}:\n${a.map((x) => x.spec ? `- ${specLine(x)}` : `- ${x.name}: ${x.description}${x.details ? ` | ${k === "location" ? "Time/light" : k === "character" ? "Wardrobe & accessories" : "Details"}: ${x.details}` : ""}`).join("\n")}` : "";
   };
-  return [`STYLE: ${styleText(p)}; aspect ${p.aspect}`, sec("character", "CHARACTERS (lock face, skin tone, hair, wardrobe colours, makeup, watches)"), sec("location", "LOCATIONS"), sec("prop", "PROPS (lock object, colours, materials, exact label text)")].filter(Boolean).join("\n\n");
+  const g = genreFor(p);
+  return [`STYLE: ${styleText(p)}; aspect ${p.aspect}${g ? `\nFILM STYLE: ${g.label} — ${genreBrief(g, "image")}` : ""}`, sec("character", "CHARACTERS (lock face, skin tone, hair, wardrobe colours, makeup, watches)"), sec("location", "LOCATIONS"), sec("prop", "PROPS (lock object, colours, materials, exact label text)")].filter(Boolean).join("\n\n");
 }
 
 function newVersion(url: string, prompt: string, source: ImageVersion["source"]): ImageVersion {
@@ -230,7 +256,8 @@ export async function expandSpec(p: Project, assetId: string) {
 
 export function sheetPrompt(p: Project, a: Asset, extra = "") {
   const taste = memoryBrief(p.ownerId, "reference", 6).replace(/\n+/g, " ").trim();
-  const notes = [extra, taste].filter(Boolean).join(" ");
+  const g = genreFor(p);
+  const notes = [extra, g ? `Film look: ${g.look}.` : "", taste].filter(Boolean).join(" ");
   const spec = (a.spec || mockSpec(p, a)) as unknown;
   if (a.kind === "prop") {
     const loc = p.assets.find((x) => x.kind === "location" && (String((spec as PropSpec).context || "").toLowerCase().includes(x.name.toLowerCase().split(/\s+/)[0]))) || p.assets.find((x) => x.kind === "location");
@@ -316,7 +343,7 @@ export async function autofillAsset(p: Project, assetId: string) {
 }
 
 // ───────────────────────── Storyboard ─────────────────────────
-interface PlanShot { description: string; camera: string; speaker?: string; dialogue?: string; narration?: string; durationSec: number; assets: string[]; end?: string }
+interface PlanShot { description: string; camera: string; speaker?: string; dialogue?: string; narration?: string; durationSec: number; assets: string[]; end?: string; beat?: string; screen?: string }
 
 function mockStoryboard(p: Project): { scenes: { heading: string; summary: string; shots: PlanShot[] }[] } {
   const { scenes } = parseScenes(p.script);
@@ -353,8 +380,8 @@ function mockStoryboard(p: Project): { scenes: { heading: string; summary: strin
 
 export async function buildStoryboard(p: Project) {
   const { data, source } = await structured<{ scenes: { heading: string; summary: string; shots: PlanShot[] }[] }>(
-    `You are ReelForge's AI director (Muse Wonder). ${ctx(p)} Break the screenplay into a shot list for an AI video pipeline that uses a START frame and an END frame per shot (the end frame of one shot should flow into the next). For each shot give: description (what we see at the start), end (what we see at the end), camera (shot size + movement), speaker+dialogue OR narration, durationSec (3-8), assets (names from the asset list that must appear). Respect the production bible.\n\nASSETS:\n${p.assets.map((a) => `${a.kind}: ${a.name}`).join("\n")}\n\nReturn {"scenes":[{"heading","summary","shots":[...]}]}.`,
-    p.script,
+    `You are ReelForge's AI director (Muse Wonder). ${ctx(p, "director", "director")} Break the screenplay into a shot list for an AI video pipeline that uses a START frame and an END frame per shot (the end frame of one shot should flow into the next). For each shot give: description (what we see at the start), end (what we see at the end), camera (shot size + movement), speaker+dialogue OR narration, durationSec (3-8), assets (names from the asset list that must appear), beat (the genre beat type for this shot), screen (screen direction: who is frame-left/right, facing and movement direction — keep it consistent across the scene unless a shot deliberately crosses the line). One speaker per shot; dialogue ≤ 14 words — split longer speeches across shots with reaction coverage. Respect the production bible and the FILM STYLE SKILL's shot grammar.\n\nASSETS:\n${p.assets.map((a) => `${a.kind}: ${a.name}`).join("\n")}\n\nReturn {"scenes":[{"heading","summary","shots":[...]}]}.`,
+    `${p.script}${p.bible ? `\n\nPRODUCTION BIBLE:\n${p.bible.slice(0, 3000)}` : ""}`,
     () => mockStoryboard(p),
     undefined, "director",
   );
@@ -362,12 +389,13 @@ export async function buildStoryboard(p: Project) {
   let idx = 0;
   const scenes: Scene[] = data.scenes.map((s) => ({
     id: nanoid(8), heading: s.heading, summary: s.summary,
-    shots: s.shots.map((sh) => ({
-      id: nanoid(8), index: idx++, description: sh.description + (sh.end ? ` → ends: ${sh.end}` : ""), camera: sh.camera, speaker: sh.speaker, dialogue: sh.dialogue, narration: sh.narration,
+    shots: normalizeDialogue((s.shots || []).map((sh) => ({ ...sh, description: sh.description + (sh.end ? ` → ends: ${sh.end}` : ""), end: undefined }))).map((sh) => ({
+      id: nanoid(8), index: idx++, description: sh.description, camera: sh.camera, speaker: sh.speaker, dialogue: sh.dialogue, narration: sh.narration, beat: sh.beat ? String(sh.beat).slice(0, 30) : undefined, screen: sh.screen ? String(sh.screen).slice(0, 200) : undefined,
       durationSec: sh.durationSec || 4, assetIds: (sh.assets || []).map(byName).filter(Boolean) as string[], startFrame: [], endFrame: [],
     })),
   }));
-  await db.update(p.id, (x) => { x.scenes = scenes; x.bible = buildBible(x); });
+  const g = genreFor(p);
+  await db.update(p.id, (x) => { x.scenes = scenes; x.bible = buildBible(x); x.genreSkill = g ? `${g.id}@${g.version}` : undefined; });
   return { source };
 }
 
@@ -381,12 +409,18 @@ function shotPrompt(p: Project, sh: Shot, which: "start" | "end", change?: strin
   const assets = p.assets.filter((a) => sh.assetIds.includes(a.id));
   const [startDesc, endDesc] = sh.description.split(" → ends: ");
   const what = which === "start" ? startDesc : endDesc || `the closing moment of: ${startDesc}`;
+  const g = genreFor(p);
+  const people = assets.filter((a) => a.kind === "character").length;
   return [
     `${sh.camera}. ${what}.`,
-    sh.dialogue ? `${sh.speaker} is speaking: "${sh.dialogue}".` : "",
+    sh.screen ? `Screen direction: ${sh.screen}.` : "",
+    sh.dialogue ? `${sh.speaker} is mid-line, mouth slightly open, natural expression.` : "",
+    people ? `Exactly ${people} named character${people > 1 ? "s" : ""} in focus; correct anatomy, five fingers per hand, no merged bodies.` : "",
     assets.length ? `Keep continuity (locked bible — must match the attached reference sheets exactly): ${assets.map(specLine).join(" || ")}.` : "",
     assets.some((a) => a.kind === "prop") ? "Props must keep their exact colours, materials, markings and label spelling; no duplicate props, no warped text." : "",
     `${styleText(p)}, ${p.aspect} composition.`,
+    g ? genreBrief(g, "image") : "",
+    "No on-screen text, captions, logos or watermarks.",
     change ? `Change: ${change}. Keep everything else identical.` : "",
   ].filter(Boolean).join(" ");
 }
@@ -442,7 +476,7 @@ export async function checkContinuity(p: Project, shotId: string) {
     const shots = allShots(p); const pi = shots.findIndex((s) => s.id === shotId); const prev = pi > 0 ? shots[pi - 1] : undefined;
     const pf = prev ? (prev.endFrame.find((v) => v.id === prev.activeEnd) || prev.startFrame.find((v) => v.id === prev.activeStart)) : undefined;
     const prevRef = pf ? [{ name: "Previous shot (state to carry over)", file: mediaPath(pf.url) }] : [];
-    const v = await visionCheck(mediaPath(frame.url), [...refs.map((r) => ({ ...r, name: `${r.name} reference sheet` })), ...prevRef, ...crops.map((f, i) => ({ name: `Person crop ${i + 1}`, file: f }))], buildBible(p) + memoryBrief(p.ownerId, "continuity", 8), `${sh.description}${sh.speaker ? ` — ${sh.speaker}: "${sh.dialogue}"` : ""}. Assets that must appear: ${assets.map((a) => a.name).join(", ") || "none listed"}.${prev ? ` Previous shot: ${prev.description}.` : ""}${samNote}`);
+    const v = await visionCheck(mediaPath(frame.url), [...refs.map((r) => ({ ...r, name: `${r.name} reference sheet` })), ...prevRef, ...crops.map((f, i) => ({ name: `Person crop ${i + 1}`, file: f }))], buildBible(p) + (genreFor(p) ? `\n\n${genreBrief(genreFor(p)!, "continuity")}` : "") + memoryBrief(p.ownerId, "continuity", 8), `${sh.screen ? `Screen direction: ${sh.screen}. ` : ""}${sh.description}${sh.speaker ? ` — ${sh.speaker}: "${sh.dialogue}"` : ""}. Assets that must appear: ${assets.map((a) => a.name).join(", ") || "none listed"}.${prev ? ` Previous shot: ${prev.description}.` : ""}${samNote}`);
     for (const f of crops) fs.promises.unlink(f).catch(() => {});
     const issues = [...samIssues, ...(v.issues || [])].slice(0, 6);
     result = { ok: !!v.ok && !issues.length, issues, fix: v.fix_prompt ? String(v.fix_prompt).slice(0, 600) : undefined };

@@ -28,7 +28,7 @@ export function EditTab({ p, act, busy, patch }: TabProps & { patch: (b: Partial
           <div className="min-w-0 space-y-5">
             <div className="panel overflow-hidden">
               <div className={`relative mx-auto bg-black ${portrait ? "max-w-[380px]" : ""}`} style={{ aspectRatio: ratio(p.aspect) }}>
-                {r.status === "done" && r.url ? <video key={r.url} src={r.url} controls playsInline className="absolute inset-0 h-full w-full" /> : (
+                {r.status === "done" && r.url ? <video key={r.url} src={r.url} controls playsInline className="absolute inset-0 h-full w-full">{r.srtUrl && !p.subtitles && <track kind="subtitles" srcLang="en" label="English" src={r.srtUrl.replace(/\.srt$/, ".vtt")} />}</video> : (
                   <div className="absolute inset-0 grid place-items-center p-6 text-center">
                     {rendering ? <div className="w-full max-w-xs space-y-3"><Spinner className="mx-auto h-7 w-7" /><p className="text-sm text-ink-300">{r.message}</p><div className="h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full bg-brand-500 transition-all" style={{ width: `${r.progress}%` }} /></div><p className="text-[11px] text-ink-500">Rendering on the server — you can close this page and come back.</p></div>
                       : r.status === "error" ? <p className="text-sm text-red-300">Render failed: {r.message}</p>
@@ -42,10 +42,11 @@ export function EditTab({ p, act, busy, patch }: TabProps & { patch: (b: Partial
                 </div>
               )}
               <div className="flex flex-wrap items-center gap-2 border-t border-white/[0.06] p-3">
-                <span className="text-xs text-ink-400">{shots.length} shots · ~{total.toFixed(0)}s · {p.aspect}</span>
+                <span className="text-xs text-ink-400">{shots.length} shots · ~{total.toFixed(0)}s · {p.aspect}{(() => { const c = shots.filter((s) => s.clarity); return c.length ? ` · dialogue ${c.filter((s) => s.clarity!.ok).length}/${c.length} clear` : ""; })()}</span>
                 <div className="ml-auto flex gap-2">
                   <button className="btn-outline" disabled={rendering || !shots.length} onClick={() => act("render")}>{rendering ? <Spinner /> : <RefreshCw className="h-4 w-4" />}{r.status === "done" ? "Re-render" : "Render"}</button>
                   {r.status === "done" && r.url && <a className="btn-brand" href={r.url} download={`${p.title.replace(/[^\w-]+/g, "_")}.mp4`}><Download className="h-4 w-4" />Export MP4</a>}
+                  {r.status === "done" && r.srtUrl && <a className="btn-outline" href={r.srtUrl} download={`${p.title.replace(/[^\w-]+/g, "_")}.srt`}>Subtitles</a>}
                 </div>
               </div>
             </div>

@@ -1,5 +1,6 @@
 "use client";
 import { friendly, jobPost, waitJob, H } from "@/lib/net";
+import { FilmStylePicker } from "../FilmStylePicker";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -168,8 +169,9 @@ export function Workspace({ id }: { id: string }) {
           <div><span className="label">Mode</span><Segmented value={p.mode} onChange={(v) => patch({ mode: v })} options={[{ value: "drama", label: "Drama" }, { value: "documentary", label: "Documentary" }, { value: "ad", label: "Product Ad" }]} /></div>
           <div><span className="label">Format</span><Segmented value={p.format} onChange={(v) => patch({ format: v })} options={[{ value: "yt_shorts", label: "YouTube Shorts" }, { value: "tiktok", label: "TikTok" }, { value: "fb_reels", label: "FB Reels" }, { value: "yt_long", label: "YouTube video" }]} /></div>
           <div><span className="label">Aspect</span><Segmented value={p.aspect} onChange={(v) => patch({ aspect: v })} options={["9:16", "16:9", "1:1", "4:5"].map((a) => ({ value: a as Project["aspect"], label: a }))} /></div>
-          <div><span className="label">Style</span><Segmented value={p.style} onChange={(v) => patch({ style: v })} options={[{ value: "realistic", label: "Realistic" }, { value: "pixar", label: "Pixar / 3D" }, { value: "cartoon", label: "Cartoon" }, { value: "anime", label: "Anime" }, { value: "custom", label: "Custom" }]} />
+          <div><span className="label">Style</span><Segmented value={p.style} onChange={(v) => patch({ style: v })} options={[{ value: "realistic", label: "Realistic" }, { value: "pixar", label: "3D animated" }, { value: "cartoon", label: "Cartoon" }, { value: "anime", label: "Anime" }, { value: "custom", label: "Custom" }]} />
             {p.style === "custom" && <input className="input mt-2" defaultValue={p.customStyle} placeholder="Describe your style" onBlur={(e) => patch({ customStyle: e.target.value })} />}</div>
+          {(p.mode === "drama" || p.filmStyleManual) && <div><span className="label">Film style</span><FilmStylePicker value={p.filmStyle} auto={!p.filmStyleManual} onChange={(v) => patch({ filmStyle: v })} /></div>}
           <div><span className="label">Output</span><Segmented value={p.outputType} onChange={(v) => patch({ outputType: v })} options={[{ value: "image", label: "Image mode" }, { value: "video", label: "Video mode" }]} /></div>
           <div className="border-t border-white/[0.07] pt-5"><span className="label">Danger zone</span>
             <button className="btn-outline h-10 border-red-500/30 text-red-300 hover:bg-red-500/10" onClick={() => { setSettings(false); setDelOpen(true); }}><Trash2 className="h-4 w-4" />Delete project…</button></div>
