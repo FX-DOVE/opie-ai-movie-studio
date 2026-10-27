@@ -50,6 +50,10 @@ export interface Shot {
   continuity?: { ok: boolean; issues: string[]; checkedAt: string; source: string; fix?: string; state?: "checking" | "fixing" | "passed" | "fixed" | "attention"; attempts?: number };
   trimStart?: number;
   trimEnd?: number;
+  /** set when the user picks a length by hand; otherwise the cut fits each shot to its voice line */
+  durationLocked?: boolean;
+  /** which TTS engine voiced this line ("none" = TTS unavailable) */
+  audioProvider?: string;
 }
 
 export interface Scene { id: string; heading: string; summary: string; shots: Shot[] }
@@ -58,7 +62,7 @@ export interface Idea { title: string; logline: string; hook?: string; beats?: s
 export interface ChatMsg { role: "user" | "assistant"; content: string; at: string; provider?: string; ideas?: Idea[]; kind?: "note" | "research" }
 export interface ResearchNote { id: string; goal: string; notes: string; at: string; provider?: string }
 
-export interface RenderJob { status: "idle" | "queued" | "running" | "done" | "error"; progress: number; message: string; url?: string; updatedAt: string; review?: string }
+export interface RenderJob { status: "idle" | "queued" | "running" | "done" | "error"; progress: number; message: string; url?: string; updatedAt: string; review?: string; warnings?: string[]; jobId?: string; startedAt?: string; attempts?: number }
 
 export interface Project {
   writing?: number; // set while a script is being written in the background

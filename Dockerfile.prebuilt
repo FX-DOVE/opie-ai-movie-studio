@@ -1,7 +1,7 @@
 # Runtime-only image from a prebuilt `next build` (for small VPSes that can't build Next.js themselves).
 FROM node:20-bookworm-slim
 ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0 DATA_DIR=/data
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core ca-certificates espeak-ng && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY standalone/ ./
 COPY static ./.next/static

@@ -1,5 +1,5 @@
 "use client";
-import { friendly, jobPost } from "@/lib/net";
+import { friendly, jobPost, waitJob, H } from "@/lib/net";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -56,7 +56,7 @@ export function Workspace({ id }: { id: string }) {
     const key = opts.busyKey || action;
     setBusy((b) => new Set(b).add(key));
     try {
-      const r = await jobPost<Record<string, unknown> & { project?: Project; error?: string }>(`/api/projects/${id}/action`, { action, ...payload });
+      const r = await jobPost<Record<string, unknown> & { project?: Project; error?: string }>(`/api/projects/${id}/action`, { action, ...payload, _busy: key });
       const j = r.data;
       if (j.project) setP(j.project);
       if (!r.ok) toast(j.error || "Something went wrong — please retry.", true);
@@ -65,6 +65,28 @@ export function Workspace({ id }: { id: string }) {
     } catch (e) { toast(friendly(e), true); return null; }
     finally { setBusy((b) => { const n = new Set(b); n.delete(key); return n; }); }
   }, [id, toast]);
+
+  // Reconnect to background jobs that are still running on the server (after a refresh, or reopening the page later):
+  // restore their busy spinners and pick up the result when they finish.
+  const attached = useRef(new Set<string>());
+  const [bg, setBg] = useState<{ id: string; action?: string }[]>([]);
+  const reattach = useCallback(async () => {
+    const r = await fetch(`/api/projects/${id}/jobs`, { headers: H, cache: "no-store" }).then((x) => x.ok ? x.json() : null).catch(() => null);
+    const act0: { id: string; action?: string; busyKey?: string; kind: string }[] = (r?.active || []).filter((j: { kind: string }) => j.kind === "action");
+    setBg(act0);
+    for (const j of act0) {
+      if (attached.current.has(j.id)) continue;
+      attached.current.add(j.id);
+      const key = j.busyKey || j.action || j.id;
+      setBusy((b) => new Set(b).add(key));
+      waitJob<{ project?: Project; error?: string }>(j.id)
+        .then((res) => { if (res.data?.project) setP(res.data.project); else load(); if (!res.ok) toast(res.data?.error || "A background task failed — please retry.", true); })
+        .catch(() => load())
+        .finally(() => { attached.current.delete(j.id); setBusy((b) => { const n = new Set(b); n.delete(key); return n; }); setBg((x) => x.filter((y) => y.id !== j.id)); });
+    }
+  }, [id, load, toast]);
+  useEffect(() => { reattach(); const onVis = () => { if (document.visibilityState === "visible") { reattach(); load(); } }; document.addEventListener("visibilitychange", onVis); return () => document.removeEventListener("visibilitychange", onVis); }, [reattach, load]);
+  useEffect(() => { if (!bg.length) return; const t = setInterval(load, 2500); return () => clearInterval(t); }, [bg.length, load]);
 
   const patch = async (body: Partial<Project>) => {
     const r = await fetch(`/api/projects/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -124,6 +146,7 @@ export function Workspace({ id }: { id: string }) {
           </nav>
         </header>
         {contrib && <div role="note" className="border-b border-amber-400/20 bg-amber-500/10 px-4 py-1.5 text-center text-[11px] text-amber-200">Contributor mode is on (Admin): text inputs in this project may be used by Meta for training.</div>}
+        {bg.length > 0 && <div role="status" className="flex items-center justify-center gap-2 border-b border-white/[0.06] bg-brand-500/10 px-4 py-1.5 text-[11px] text-brand-200"><Spinner className="h-3 w-3" />Working in the background on the server: {[...new Set(bg.map((j) => j.action))].join(", ")} — safe to close this page.</div>}
         <main className="flex min-h-0 flex-1 flex-col">
           {tab === "script" && <ScriptTab {...props} openBrainstorm={params.get("brainstorm") === "1"} next={() => setTab("assets")} />}
           {tab === "assets" && <AssetsTab {...props} next={() => setTab("storyboard")} />}

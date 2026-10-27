@@ -1,5 +1,5 @@
 "use client";
-import { friendly, ndjson } from "@/lib/net";
+import { friendly, ndjson, resumeStream } from "@/lib/net";
 import { useEffect, useRef, useState } from "react";
 import { Check, FileText, Lightbulb, MessageSquareText, NotebookPen, RotateCcw, Send, Sparkles, Square, X } from "lucide-react";
 import type { ChatMsg, Idea, Project } from "@/lib/types";
@@ -64,22 +64,35 @@ export function Brainstorm({ p, setP, act, toast, open, onScript }: { p: Project
   useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [p.brainstorm.length, live?.text]);
 
   const reload = async () => { const r = await fetch(`/api/projects/${p.id}`); if (r.ok) setP(await r.json()); };
+  const JK = `rf-bs-job-${p.id}`;
+  const handler = () => {
+    let acc = ""; let prov: string | undefined;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (ev: any) => {
+      if (ev.type === "provider") prov = ev.provider + (ev.model ? ` · ${ev.model}` : "");
+      if (ev.type === "delta") acc += ev.text;
+      if (ev.type === "error") throw new Error(ev.error);
+      if (ev.type === "research") { setRjob({ id: ev.id, topic: ev.topic }); return; }
+      setLive({ text: acc.replace(/```ideas[\s\S]*$/, "\n_…shaping idea cards…_"), provider: prov });
+    };
+  };
+  // a reply still being written on the server (page refreshed mid-stream): re-attach and keep showing it live
+  useEffect(() => {
+    const job = localStorage.getItem(JK); if (!job) return;
+    const ac = new AbortController(); abort.current = ac; setLive({ text: "" });
+    resumeStream(job, handler(), ac.signal).catch(() => {}).finally(async () => { if (ac.signal.aborted) return; localStorage.removeItem(JK); await reload(); setLive(null); abort.current = null; });
+    return () => ac.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JK]);
   const send = async (text = msg) => {
     if (!text.trim() || live) return;
     setMsg(""); setLive({ text: "" });
     const ac = new AbortController(); abort.current = ac;
     try {
-      let acc = ""; let prov: string | undefined;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await ndjson(`/api/projects/${p.id}/brainstorm`, { message: text, autoResearch: autoResearchPref() }, (ev: any) => {
-        if (ev.type === "provider") prov = ev.provider + (ev.model ? ` · ${ev.model}` : "");
-        if (ev.type === "delta") acc += ev.text;
-        if (ev.type === "error") throw new Error(ev.error);
-        if (ev.type === "research") { setRjob({ id: ev.id, topic: ev.topic }); return; }
-        setLive({ text: acc.replace(/```ideas[\s\S]*$/, "\n_…shaping idea cards…_"), provider: prov });
-      }, ac.signal);
+      await ndjson(`/api/projects/${p.id}/brainstorm`, { message: text, autoResearch: autoResearchPref() }, handler(), ac.signal, (job) => { try { localStorage.setItem(JK, job); } catch { /* */ } });
       await reload();
     } catch (e) { if ((e as Error).name !== "AbortError") toast(friendly(e), true); setMsg(text); }
+    try { localStorage.removeItem(JK); } catch { /* */ }
     setLive(null); abort.current = null;
   };
   const ideaText = (i: Idea) => `${i.title}. ${i.logline}${i.hook ? ` Hook: ${i.hook}.` : ""}${i.beats?.length ? ` Beats: ${i.beats.join(" → ")}.` : ""}${i.characters?.length ? ` Characters: ${i.characters.map((c) => `${c.name} (${c.description})`).join("; ")}.` : ""}`;
@@ -147,7 +160,7 @@ export function Brainstorm({ p, setP, act, toast, open, onScript }: { p: Project
         </label>
         <div className="flex gap-2">
           <textarea rows={1} className="input min-h-10 resize-none py-2.5" placeholder="Brainstorm an idea…" value={msg} onChange={(e) => setMsg(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} />
-          {live ? <button className="btn-outline h-10 w-10 px-0" onClick={() => abort.current?.abort()} aria-label="Stop"><Square className="h-4 w-4" /></button>
+          {live ? <button className="btn-outline h-10 w-10 px-0" onClick={() => { abort.current?.abort(); setLive(null); }} aria-label="Stop"><Square className="h-4 w-4" /></button>
             : <button className="btn-primary h-10 w-10 px-0" onClick={() => send()} disabled={!msg.trim()} aria-label="Send"><Send className="h-4 w-4" /></button>}
         </div>
       </div>

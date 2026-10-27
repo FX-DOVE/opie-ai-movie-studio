@@ -7,5 +7,5 @@ export async function POST(req: Request) {
   const message = String(b.message || "").trim().slice(0, 4000);
   if (!message) return Response.json({ error: "message required" }, { status: 400 });
   const { stream } = agentStream({ convId: b.convId ? String(b.convId) : undefined, message, projectId: b.projectId ? String(b.projectId) : undefined, autoResearch: b.autoResearch !== false });
-  return streamJob(stream);
+  return streamJob(stream, { projectId: b.projectId ? String(b.projectId) : undefined, action: "agent" });
 }

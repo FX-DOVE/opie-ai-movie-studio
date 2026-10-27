@@ -11,7 +11,7 @@ RUN npm run build
 
 FROM node:20-bookworm-slim AS run
 ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0 DATA_DIR=/data CHROMIUM_PATH=/usr/bin/chromium
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg chromium fonts-dejavu-core fonts-noto-core ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg chromium fonts-dejavu-core fonts-noto-core ca-certificates espeak-ng \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app/.next/standalone ./

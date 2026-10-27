@@ -30,12 +30,17 @@ export function EditTab({ p, act, busy, patch }: TabProps & { patch: (b: Partial
               <div className={`relative mx-auto bg-black ${portrait ? "max-w-[380px]" : ""}`} style={{ aspectRatio: ratio(p.aspect) }}>
                 {r.status === "done" && r.url ? <video key={r.url} src={r.url} controls playsInline className="absolute inset-0 h-full w-full" /> : (
                   <div className="absolute inset-0 grid place-items-center p-6 text-center">
-                    {rendering ? <div className="w-full max-w-xs space-y-3"><Spinner className="mx-auto h-7 w-7" /><p className="text-sm text-ink-300">{r.message}</p><div className="h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full bg-brand-500 transition-all" style={{ width: `${r.progress}%` }} /></div></div>
+                    {rendering ? <div className="w-full max-w-xs space-y-3"><Spinner className="mx-auto h-7 w-7" /><p className="text-sm text-ink-300">{r.message}</p><div className="h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full bg-brand-500 transition-all" style={{ width: `${r.progress}%` }} /></div><p className="text-[11px] text-ink-500">Rendering on the server — you can close this page and come back.</p></div>
                       : r.status === "error" ? <p className="text-sm text-red-300">Render failed: {r.message}</p>
                       : <p className="text-sm text-ink-400">Assemble your film to preview it here.</p>}
                   </div>
                 )}
               </div>
+              {!!r.warnings?.length && !rendering && (
+                <div role="alert" className="space-y-1 border-t border-amber-400/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                  {r.warnings.map((w, i) => <p key={i}>⚠ {w}</p>)}
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-2 border-t border-white/[0.06] p-3">
                 <span className="text-xs text-ink-400">{shots.length} shots · ~{total.toFixed(0)}s · {p.aspect}</span>
                 <div className="ml-auto flex gap-2">

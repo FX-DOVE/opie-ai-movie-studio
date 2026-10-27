@@ -1,6 +1,6 @@
 "use client";
 import { showDesktop } from "./DesktopWidget";
-import { friendly, ndjson } from "@/lib/net";
+import { friendly, ndjson, resumeStream } from "@/lib/net";
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ArrowUp, Check, ChevronLeft, Loader2, Paperclip, RotateCw, Square, Volume2, VolumeX, Wrench, X } from "lucide-react";
@@ -42,17 +42,9 @@ export function AgentChat({ projectId, onSession, className = "", starters }: { 
   const [files, setFiles] = useState<{ name: string; text?: string }[]>([]);
   useEffect(() => { const f = (e: Event) => { const t = (e as CustomEvent).detail?.text; if (t) setInput(t); }; window.addEventListener("rf:chat", f); return () => window.removeEventListener("rf:chat", f); }, []);
   const fileRef = useRef<HTMLInputElement>(null);
-  const send = async (text = input) => {
-    let msg = text.trim(); if (!msg && !files.length) return; setInput("");
-    if (files.length) { msg = (msg || "Take a look at the attached file.") + "\n\n" + files.map((f) => `[Attached: ${f.name}]${f.text ? "\n" + f.text.slice(0, 6000) : ""}`).join("\n\n"); setFiles([]); }
-    setItems((x) => [...x, { k: "user", text: msg }]);
-    const interrupting = busy;
-    if (!interrupting) setBusy(true);
-    try {
-      let open = false;
-      const push = (f: (x: Item[]) => Item[]) => setItems(f);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await ndjson("/api/agent", { convId: conv.current, message: msg, projectId, autoResearch: autoResearchPref() }, (e: any) => {
+  // one handler for live streams and for re-attaching to a run after a refresh
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const makeHandler = (interrupting: boolean) => { let open = false; const push = (f: (x: Item[]) => Item[]) => setItems(f); return (e: any) => {
           if (e.type === "conv") { conv.current = e.id; sessionStorage.setItem("opie-conv", e.id); }
           else if (e.type === "thinking") setThinking(true);
           else if (e.type === "delta") { setThinking(false); if (!e.text) return; push((x) => { const last = x[x.length - 1]; if (open && last?.k === "ai") return [...x.slice(0, -1), { ...last, text: last.text + e.text }]; open = true; return [...x, { k: "ai", text: e.text.replace(/^\s+/, ""), live: true }]; }); }
@@ -67,9 +59,32 @@ export function AgentChat({ projectId, onSession, className = "", starters }: { 
           else if (e.type === "project") push((x) => [...x, { k: "info", text: `Created project “${e.title}” — /studio/${e.id}` }]);
           else if (e.type === "error") push((x) => [...x, { k: "info", text: "⚠ " + e.error }]);
           else if (e.type === "done" && e.projectId && !interrupting) router.refresh();
-      });
+  }; };
+  const RUN = "rf-agent-run";
+  const baseRef = useRef<Item[]>([]);
+  // reconnect to an agent run that is still going on the server (page refreshed / phone closed and reopened)
+  useEffect(() => {
+    let run: { job?: string; base?: Item[]; conv?: string } | null = null;
+    try { run = JSON.parse(localStorage.getItem(RUN) || "null"); } catch { /* */ }
+    if (!run?.job) return;
+    if (run.conv) { conv.current = run.conv; sessionStorage.setItem("opie-conv", run.conv); }
+    setItems(run.base || []); setBusy(true);
+    resumeStream(run.job, makeHandler(false))
+      .catch(() => setItems((x) => [...x, { k: "info", text: "⚠ Lost track of the previous task — it may have finished. Check your project." }]))
+      .finally(() => { localStorage.removeItem(RUN); setBusy(false); setThinking(false); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const send = async (text = input) => {
+    let msg = text.trim(); if (!msg && !files.length) return; setInput("");
+    if (files.length) { msg = (msg || "Take a look at the attached file.") + "\n\n" + files.map((f) => `[Attached: ${f.name}]${f.text ? "\n" + f.text.slice(0, 6000) : ""}`).join("\n\n"); setFiles([]); }
+    setItems((x) => { const nx = [...x, { k: "user", text: msg } as Item]; baseRef.current = nx; return nx; });
+    const interrupting = busy;
+    if (!interrupting) setBusy(true);
+    try {
+      await ndjson("/api/agent", { convId: conv.current, message: msg, projectId, autoResearch: autoResearchPref() }, makeHandler(interrupting), undefined,
+        (job) => { if (!interrupting) try { localStorage.setItem(RUN, JSON.stringify({ job, base: baseRef.current.slice(-60), conv: conv.current })); } catch { /* */ } });
     } catch (err) { setItems((x) => [...x, { k: "info", text: "⚠ " + friendly(err), retry: msg }]); }
-    finally { if (!interrupting) { setBusy(false); setThinking(false); } }
+    finally { if (!interrupting) { localStorage.removeItem(RUN); setBusy(false); setThinking(false); } }
   };
 
   const pick = async (fl: FileList | null) => {

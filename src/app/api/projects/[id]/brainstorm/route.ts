@@ -10,5 +10,5 @@ export async function POST(req: Request, { params }: Ctx) {
   if (!p) return NextResponse.json({ error: "not found" }, { status: 404 });
   const { message, autoResearch } = await req.json().catch(() => ({}));
   if (!message || !String(message).trim()) return NextResponse.json({ error: "Say something" }, { status: 400 });
-  return withStep(p.id, "idea", () => streamJob(brainstormStream(p, String(message).slice(0, 4000), autoResearch !== false)));
+  return withStep(p.id, "idea", () => streamJob(brainstormStream(p, String(message).slice(0, 4000), autoResearch !== false), { projectId: p.id, action: "brainstorm" }));
 }

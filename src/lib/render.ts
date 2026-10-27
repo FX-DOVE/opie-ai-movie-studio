@@ -17,6 +17,11 @@ async function setRender(id: string, patch: Partial<Project["render"]>) {
   await db.update(id, (x) => { x.render = { ...x.render, ...patch, updatedAt: now() }; });
 }
 
+/** Shot length that fits its voice line: the line plus a short breath, never a long hold of dead air. */
+export function fitDuration(audioSec: number) { return Math.max(2.2, Math.round((audioSec + 0.85) * 10) / 10); }
+/** Silent (no-line) shots are kept short so the cut doesn't sag between lines. */
+const SILENT_MAX = 3.5;
+
 /** Voice every line: narration with the narrator voice, dialogue with each character's voice. */
 export async function voiceShot(p: Project, shotId: string) {
   const sh = findShot(p, shotId);
@@ -26,13 +31,13 @@ export async function voiceShot(p: Project, shotId: string) {
   const file = path.join(projectMediaDir(p.id), `voice-${sh.id}-${Date.now()}.mp3`);
   const provider = await speak(text, voice, file);
   const dur = await probeDuration(file);
-  await db.update(p.id, (x) => { const t = findShot(x, shotId); t.audioUrl = mediaUrl(file); if (dur + 0.5 > t.durationSec) t.durationSec = Math.ceil(dur + 0.6); });
+  await db.update(p.id, (x) => { const t = findShot(x, shotId); t.audioUrl = mediaUrl(file); t.audioProvider = provider; if (!t.durationLocked || dur + 0.5 > t.durationSec) t.durationSec = fitDuration(dur); });
   return { url: mediaUrl(file), provider, duration: dur };
 }
 
 export async function voiceAll(p: Project) {
   const out = [];
-  for (const sh of shotsOf(p)) if (sh.narration || sh.dialogue) out.push(await voiceShot(db.getProject(p.id)!, sh.id));
+  for (const sh of shotsOf(p)) if (sh.narration || sh.dialogue) out.push(await voiceShot(db.getProject(p.id)!, sh.id).catch((e) => ({ shotId: sh.id, error: (e as Error).message })));
   return out;
 }
 
@@ -118,13 +123,18 @@ export async function renderProject(projectId: string) {
   fs.rmSync(work, { recursive: true, force: true });
   fs.mkdirSync(work, { recursive: true });
   try {
-    await setRender(p.id, { status: "running", progress: 2, message: "Preparing shots", url: undefined, review: undefined });
+    await setRender(p.id, { status: "running", progress: 2, message: "Preparing shots", url: undefined, review: undefined, warnings: undefined, startedAt: now() });
     const shots = shotsOf(p);
     if (!shots.length) throw new Error("No storyboard shots yet");
-    // ensure voice + frames exist
-    for (const sh of shots) {
-      if ((sh.narration || sh.dialogue) && !sh.audioUrl) await voiceShot(db.getProject(p.id)!, sh.id);
+    // voice every line that has no audio yet; a TTS outage never fails the whole render — the shot renders silent with a warning
+    const warnings: string[] = [];
+    const lines = shots.filter((sh) => (sh.narration || sh.dialogue) && (!sh.audioUrl || !fs.existsSync(mediaPath(sh.audioUrl))));
+    for (let i = 0; i < lines.length; i++) {
+      await setRender(p.id, { progress: 2 + Math.round((i / lines.length) * 8), message: `Voicing line ${i + 1}/${lines.length}` });
+      try { await voiceShot(db.getProject(p.id)!, lines[i].id); }
+      catch (e) { warnings.push(`Shot ${lines[i].index + 1}: voice unavailable (${(e as Error).message.slice(0, 140)}) — rendered without narration. Tap Re-render to retry.`); }
     }
+    if (warnings.length) await setRender(p.id, { warnings });
     p = db.getProject(p.id)!;
     const { w, h } = aspectSize(p.aspect, 1280);
     const fps = 25;
@@ -137,10 +147,12 @@ export async function renderProject(projectId: string) {
       await setRender(p.id, { progress: Math.round(5 + (i / list.length) * 70), message: `Rendering shot ${i + 1}/${list.length}` });
       const start = sh.startFrame.find((v) => v.id === sh.activeStart);
       const end = sh.endFrame.find((v) => v.id === sh.activeEnd);
-      const audio = sh.audioUrl ? mediaPath(sh.audioUrl) : null;
+      const audio = sh.audioUrl && fs.existsSync(mediaPath(sh.audioUrl)) ? mediaPath(sh.audioUrl) : null;
       const adur = audio ? await probeDuration(audio) : 0;
       const trimS = sh.trimStart || 0;
-      const dur = Math.max(2, Math.max(sh.durationSec, adur + 0.4) - trimS - (sh.trimEnd || 0));
+      // fit each shot to its voice line (unless the user locked a length), so narration covers the cut instead of dead air
+      const base = sh.durationLocked ? Math.max(sh.durationSec, adur + 0.5) : adur ? fitDuration(adur) : (sh.narration || sh.dialogue) ? sh.durationSec : Math.min(sh.durationSec, SILENT_MAX);
+      const dur = +Math.max(2, base - trimS - (sh.trimEnd || 0)).toFixed(2);
       const out = path.join(work, `seg${String(i).padStart(3, "0")}.mp4`);
       const vIn: string[] = [];
       let vf: string;
@@ -189,7 +201,8 @@ export async function renderProject(projectId: string) {
     await ffmpeg([...args, ...(fc ? ["-filter_complex", fc] : []), "-map", vfilter ? "[v]" : "0:v", "-map", amap, "-c:v", vfilter ? "libx264" : "copy", ...(vfilter ? ["-preset", "veryfast", "-crf", "21"] : []), "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", final]);
     await setRender(p.id, { progress: 95, message: "Muse is reviewing the cut" });
     const review = await reviewCut(db.getProject(p.id)!, t);
-    await setRender(p.id, { status: "done", progress: 100, message: `Rendered ${t.toFixed(1)}s`, url: mediaUrl(final), review });
+    const speech = (await Promise.all(list.map((s) => s.audioUrl && fs.existsSync(mediaPath(s.audioUrl)) ? probeDuration(mediaPath(s.audioUrl)) : 0))).reduce((a, b) => a + b, 0);
+    await setRender(p.id, { status: "done", progress: 100, message: `Rendered ${t.toFixed(1)}s · voice ${speech.toFixed(1)}s (${Math.round((speech / Math.max(t, 0.1)) * 100)}%)`, url: mediaUrl(final), review, warnings: warnings.length ? warnings : undefined });
     fs.rmSync(work, { recursive: true, force: true });
   } catch (e) {
     await setRender(p.id, { status: "error", message: (e as Error).message.slice(0, 500) });
@@ -247,7 +260,7 @@ export async function aiEdit(p: Project, prompt: string) {
     const flat = () => x.scenes.flatMap((s) => s.shots);
     for (const o of data.ops || []) {
       const target = "shot" in o ? flat()[o.shot - 1] : undefined;
-      if (o.op === "duration" && target) target.durationSec = Math.max(1, Math.min(30, o.seconds));
+      if (o.op === "duration" && target) { target.durationSec = Math.max(1, Math.min(30, o.seconds)); target.durationLocked = true; }
       if (o.op === "trim" && target) { target.trimStart = o.start || 0; target.trimEnd = o.end || 0; }
       if (o.op === "line" && target) { if (target.narration !== undefined) target.narration = o.text; else target.dialogue = o.text; target.audioUrl = undefined; }
       if (o.op === "delete" && target) for (const s of x.scenes) s.shots = s.shots.filter((y) => y.id !== target.id);
