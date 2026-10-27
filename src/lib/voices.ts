@@ -22,10 +22,11 @@ export function inferGender(a: Pick<Asset, "name" | "description" | "details" | 
 }
 export function inferAge(a: Pick<Asset, "name" | "description" | "details" | "spec">): "child" | "adult" | "elder" {
   const t = text(a);
-  const n = Number((a.spec as Record<string, unknown> | undefined)?.age) || Number(t.match(/\b(\d{1,2})[- ](?:year|yr)s?[- ]old\b/)?.[1]);
+  const n = Number((a.spec as Record<string, unknown> | undefined)?.age) || Number(t.match(/\b(\d{1,2})[- ](?:year|yr)s?[- ]old\b/)?.[1] || t.match(/\baged? (\d{1,2})\b/)?.[1] || t.match(/\bin (?:her|his|their) (\d)0s\b/)?.[1]?.concat("5"));
   if (n && n <= 12) return "child";
   if (!n && CHILD.test(t)) return "child";
-  if ((n && n >= 60) || /\b(elderly|old (?:wo)?man|grand(?:mother|father|ma|pa)|aged|senior|matriarch|patriarch)\b/.test(t)) return "elder";
+  if (n) return n >= 60 ? "elder" : "adult"; // an explicit age wins ("22 year old woman" is not an "old woman")
+  if (/\b(elderly|(?<!year[- ]|years[- ]|yr[- ])old (?:wo)?man|grand(?:mother|father|ma|pa)|(?<!middle[- ])aged(?! \d)|senior|matriarch|patriarch)\b/.test(t)) return "elder";
   return "adult";
 }
 const list = (g: Gender) => {

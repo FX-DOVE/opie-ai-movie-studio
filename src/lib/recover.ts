@@ -12,9 +12,9 @@ const g = globalThis as unknown as { __rfRecovered?: Promise<Out> };
 export function recoverNow(): Promise<Out> {
   return (g.__rfRecovered ??= (async () => {
     // one-time: character voices now come from the bible's gender/age (earlier projects all defaulted to one voice)
-    if (!db.getSetting("migr_voices_v1")) {
+    if (!db.getSetting("migr_voices_v2")) {
       for (const p of db.listProjects()) await db.update(p.id, (x) => { clearLinesFor(x, assignVoices(x)); }).catch(() => {});
-      await db.setSetting("migr_voices_v1", new Date().toISOString());
+      await db.setSetting("migr_voices_v2", new Date().toISOString());
     }
     const jobs = recoverJobs();
     const renders: string[] = []; let clips = 0, reviews = 0;
