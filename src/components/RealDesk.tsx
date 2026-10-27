@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MousePointer2, Pointer } from "lucide-react";
+import { Keyboard, MousePointer2, Pointer } from "lucide-react";
 import { H } from "@/lib/net";
 import { SleepScreen } from "./DeskApps";
 
@@ -36,12 +36,44 @@ export function useInputMode(): [InputMode, (m: InputMode) => void] {
   return [m, (v) => { setM(v); try { localStorage.setItem(MODE_KEY, v); } catch { /* */ } }];
 }
 
+/**
+ * Phone keyboard for the remote desktop. A plain tap never focuses the hidden input (that made iOS pop the keyboard up and drop it
+ * on every tap). The keyboard opens only (a) when the tap lands on a text field in the desktop — probed while the finger is down so
+ * focus() still happens inside the same gesture — or (b) from the keyboard button next to the mouse/touch toggle. Once open it stays
+ * open while you type: taps on the desktop don't steal focus (touchstart is cancelled), and only an auto-opened keyboard closes when
+ * you tap somewhere that isn't a text field.
+ */
+type KbState = { el: HTMLInputElement | null; open: boolean; auto: boolean; hint: boolean; control: boolean };
+const kbBus: KbState & { subs: Set<() => void>; set: (p: Partial<KbState>) => void } = {
+  el: null, open: false, auto: false, hint: false, control: false, subs: new Set(),
+  set(p) { let ch = false; for (const k of Object.keys(p) as (keyof KbState)[]) if (this[k] !== p[k]) { (this as unknown as Record<string, unknown>)[k] = p[k]; ch = true; } if (ch) this.subs.forEach((f) => f()); },
+};
+function useKb() {
+  const [, force] = useState(0);
+  useEffect(() => { const f = () => force((x) => x + 1); kbBus.subs.add(f); return () => { kbBus.subs.delete(f); }; }, []);
+  return kbBus;
+}
+const openKb = (auto: boolean) => { const el = kbBus.el; if (!el) return; kbBus.set({ auto, hint: false }); if (document.activeElement !== el) el.focus({ preventScroll: true }); };
+const closeKb = () => { kbBus.set({ hint: false }); kbBus.el?.blur(); };
+/** Button handlers that never take focus from the hidden input: pointerdown is cancelled (no focus move, no compat mouse events),
+ *  so the action runs on pointerup — still inside the user gesture iOS needs for focus() — and on keyboard "click" (detail 0). */
+const tap = (fn: () => void) => ({
+  onPointerDown: (e: React.PointerEvent) => { e.stopPropagation(); e.preventDefault(); },
+  onPointerUp: (e: React.PointerEvent) => { e.stopPropagation(); if (e.button === 0) fn(); },
+  onClick: (e: React.MouseEvent) => { e.stopPropagation(); if (e.detail === 0) fn(); },
+});
+
 export function ModeToggle({ mode, setMode, className = "" }: { mode: InputMode; setMode: (m: InputMode) => void; className?: string }) {
+  const kb = useKb();
   const B = (m: InputMode, Icon: typeof Pointer, label: string) => (
-    <button aria-label={label} aria-pressed={mode === m} title={label} onClick={() => setMode(m)}
+    <button aria-label={label} aria-pressed={mode === m} title={label} {...tap(() => setMode(m))}
       className={`grid h-8 w-8 place-items-center rounded-full transition ${mode === m ? "bg-white text-black" : "text-white/70 hover:text-white"}`}><Icon className="h-4 w-4" /></button>
   );
-  return <div className={`flex items-center gap-0.5 rounded-full bg-ink-900/90 p-0.5 ring-1 ring-white/10 ${className}`}>{B("mouse", MousePointer2, "Mouse mode")}{B("touch", Pointer, "Touch mode")}</div>;
+  return <div className={`flex items-center gap-0.5 rounded-full bg-ink-900/90 p-0.5 ring-1 ring-white/10 ${className}`}>{B("mouse", MousePointer2, "Mouse mode")}{B("touch", Pointer, "Touch mode")}
+    {kb.control && <button aria-label={kb.open ? "Hide keyboard" : "Show keyboard"} aria-pressed={kb.open} title={kb.open ? "Hide keyboard" : "Show keyboard"} {...tap(() => (kbBus.open ? closeKb() : openKb(false)))}
+      className={`relative grid h-8 w-8 place-items-center rounded-full transition ${kb.open ? "bg-white text-black" : "text-white/70 hover:text-white"}`}><Keyboard className="h-4 w-4" />
+      {kb.hint && !kb.open && <span className="pointer-events-none absolute inset-0 animate-ping rounded-full ring-2 ring-brand-400" />}</button>}
+  </div>;
 }
 
 const KEYS = ["Enter", "Backspace", "Tab", "Escape", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"];
@@ -111,13 +143,36 @@ export function RealDesk({ desk, mode }: { desk: ReturnType<typeof useDesk>; mod
     flush(); return raw(o);
   }, [raw, flush]);
   const at = (cx: number, cy: number) => { const r = box.current!.getBoundingClientRect(); return { x: Math.max(0, Math.min(1, (cx - r.left) / r.width)), y: Math.max(0, Math.min(1, (cy - r.top) / r.height)) }; };
-  // keyboard: focus synchronously inside the tap (iOS only raises the keyboard from a gesture); drop it if the remote focus isn't a text field
+  // keyboard (see kbBus): never focus on a plain tap; probe the tap point while the finger is down, focus inside the same gesture only for text fields
+  const kbs = useKb();
+  useEffect(() => { kbBus.set({ control }); if (!control) closeKb(); }, [control]);
+  useEffect(() => { kbBus.el = kb.current; });
+  useEffect(() => () => { kbBus.el = null; kbBus.set({ open: false, hint: false, control: false }); }, []);
+  const probe = useRef<{ at: number; text?: boolean }>({ at: 0 });
+  const startProbe = (p: { x: number; y: number }) => {
+    if (kbBus.open) return; const at = Date.now(); probe.current = { at };
+    fetch(`/api/desk/editable?x=${p.x.toFixed(4)}&y=${p.y.toFixed(4)}`, { headers: H, cache: "no-store" }).then((r) => r.json()).then((j) => { if (probe.current.at === at) probe.current.text = !!j.text; }).catch(() => {});
+  };
+  const wantFocus = useRef(false);
   const clickAndKb = async (p: { x: number; y: number }, button = "left") => {
     setCur(p); curRef.current = p;
-    if (button === "left") kb.current?.focus({ preventScroll: true });
+    // inside the gesture: the probe already says "text field" → raise the keyboard now (iOS only allows focus from a user gesture)
+    if (button === "left" && !kbBus.open && probe.current.text) { wantFocus.current = true; openKb(true); }
     const j = await send({ t: "click", ...p, button });
-    if (button === "left" && !j?.text) kb.current?.blur();
+    if (button !== "left") return;
+    if (j?.text && !kbBus.open) kbBus.set({ hint: true }); // too late to focus outside the gesture: pulse the keyboard button instead
+    else if (!j?.text && kbBus.open && kbBus.auto) closeKb(); // auto-opened for a field the user has left
+    else if (!j?.text) kbBus.set({ hint: false });
   };
+  // Cancel touchstart (non-passive) so a tap never moves focus: an open keyboard stays open, no blur/refocus flicker, no zoom/magnifier.
+  // touchend is a trusted gesture on iOS, so a pending "focus for this text field" is applied there as well.
+  useEffect(() => {
+    const el = box.current; if (!el || !control) return;
+    const ts = (e: TouchEvent) => { if (e.cancelable && !(e.target as Element).closest?.("button")) e.preventDefault(); };
+    const te = () => { if (wantFocus.current) { wantFocus.current = false; if (!kbBus.open) openKb(true); } };
+    el.addEventListener("touchstart", ts, { passive: false }); el.addEventListener("touchend", te);
+    return () => { el.removeEventListener("touchstart", ts); el.removeEventListener("touchend", te); };
+  });
 
   // gesture state
   const g = useRef<{ pts: Map<number, { x: number; y: number }>; sx: number; sy: number; moved: boolean; t0: number; long?: ReturnType<typeof setTimeout>; acc: number; lastMove: number; two: boolean; mouse: boolean }>({ pts: new Map(), sx: 0, sy: 0, moved: false, t0: 0, acc: 0, lastMove: 0, two: false, mouse: false });
@@ -129,7 +184,8 @@ export function RealDesk({ desk, mode }: { desk: ReturnType<typeof useDesk>; mod
     if (s.mouse) { const p = at(e.clientX, e.clientY); setCur(p); return; }
     s.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (s.pts.size === 1) {
-      s.sx = e.clientX; s.sy = e.clientY; s.moved = false; s.two = false; s.t0 = Date.now(); s.acc = 0;
+      s.sx = e.clientX; s.sy = e.clientY; s.moved = false; s.two = false; s.t0 = Date.now(); s.acc = 0; wantFocus.current = false;
+      startProbe(mode === "mouse" ? curRef.current : at(e.clientX, e.clientY));
       clearTimeout(s.long);
       s.long = setTimeout(() => { if (!s.moved && s.pts.size === 1) { s.moved = true; const p = mode === "mouse" ? curRef.current : at(s.sx, s.sy); clickAndKb(p, "right"); navigator.vibrate?.(15); } }, 550);
     } else { s.two = true; s.moved = true; clearTimeout(s.long); }
@@ -150,7 +206,7 @@ export function RealDesk({ desk, mode }: { desk: ReturnType<typeof useDesk>; mod
   };
   const onUp = (e: React.PointerEvent) => {
     if (!control) return; const s = g.current;
-    if (s.mouse) { clickAndKb(at(e.clientX, e.clientY), e.button === 2 ? "right" : "left"); return; }
+    if (s.mouse) { openKb(false); clickAndKb(at(e.clientX, e.clientY), e.button === 2 ? "right" : "left"); return; } // real mouse = real keyboard: no on-screen keyboard to flicker
     s.pts.delete(e.pointerId); if (s.pts.size) return; clearTimeout(s.long);
     if (s.moved) { if (mode === "mouse" && !s.two) send({ t: "move", ...curRef.current }); return; }
     if (Date.now() - s.t0 < 550) clickAndKb(mode === "mouse" ? curRef.current : at(e.clientX, e.clientY));
@@ -169,7 +225,10 @@ export function RealDesk({ desk, mode }: { desk: ReturnType<typeof useDesk>; mod
         : <p className="grid h-full place-items-center text-xs text-ink-400">Connecting…</p>}
       {(mode === "mouse" || control) && <svg aria-hidden viewBox="0 0 24 24" className="pointer-events-none absolute h-5 w-5 drop-shadow" style={{ left: `${cur.x * 100}%`, top: `${cur.y * 100}%` }}><path d="M3 2l7 19 2.5-7.5L20 11z" fill="#fff" stroke="#000" strokeWidth="1.5" strokeLinejoin="round" /></svg>}
       {control && <span className={`pointer-events-none absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-medium ${live ? "bg-emerald-500/80 text-black" : "bg-black/60 text-white/70"}`}>{live ? "LIVE" : "HTTP"}</span>}
-      <input ref={kb} aria-label="Keyboard for Reel’s computer" autoCapitalize="off" autoCorrect="off" autoComplete="off" spellCheck={false} enterKeyHint="go"
+      {control && kbs.hint && !kbs.open && <button {...tap(() => openKb(true))}
+        className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-ink-900/90 px-2.5 py-1 text-[11px] text-white ring-1 ring-brand-400/60"><Keyboard className="h-3.5 w-3.5" />Tap to type</button>}
+      <input ref={kb} aria-label="Keyboard for Reel’s computer" autoCapitalize="off" autoCorrect="off" autoComplete="off" spellCheck={false} enterKeyHint="go" tabIndex={-1}
+        onFocus={() => kbBus.set({ open: true, hint: false })} onBlur={() => kbBus.set({ open: false, auto: false })}
         className="pointer-events-none fixed bottom-0 left-0 h-px w-px opacity-0" style={{ fontSize: 16 }}
         onKeyDown={(e) => { if (KEYS.includes(e.key)) { e.preventDefault(); send({ t: "key", key: e.key }); } else if ((e.ctrlKey || e.metaKey) && e.key.length === 1) { e.preventDefault(); send({ t: "key", key: "ctrl+" + e.key.toLowerCase() }); } }}
         onInput={(e) => { const t = e.currentTarget; const v = t.value; t.value = ""; if (v) send({ t: "type", text: v }); }} />

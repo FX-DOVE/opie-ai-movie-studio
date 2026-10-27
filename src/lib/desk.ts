@@ -30,3 +30,9 @@ export async function deskContext(): Promise<BrowserContext | null> {
   const b = await g.__deskBrowser;
   return b.contexts()[0] || null;
 }
+
+/** The desk Chromium's context only if it is already running (never launches anything — used by quick UI probes). */
+export async function deskContextIfUp(): Promise<BrowserContext | null> {
+  try { if (!(await fetch(CDP_URL + "/json/version", { signal: AbortSignal.timeout(600) })).ok) return null; } catch { return null; }
+  return deskContext();
+}
