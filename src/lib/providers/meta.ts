@@ -80,6 +80,9 @@ export async function* chatStream(messages: Msg[], o: LlmOpts, meta: { provider?
       if (!r.ok || !r.body) throw new Error(`${r.status}: ${(await r.text()).slice(0, 300)}`);
       meta.provider = e.name; meta.model = e.model;
       const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = "";
+      // some servers (Baseten/vLLM) send cumulative usage on every chunk — keep the last one and record a single call
+      let usage: unknown; let opened = true;
+      try {
       for (;;) {
         const { value, done } = await reader.read(); if (done) break;
         buf += dec.decode(value, { stream: true });
@@ -88,10 +91,11 @@ export async function* chatStream(messages: Msg[], o: LlmOpts, meta: { provider?
           const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
           if (!line.startsWith("data:")) continue;
           const d = line.slice(5).trim(); if (d === "[DONE]") return;
-          try { const jd = JSON.parse(d); if (jd.usage) record(taskOf(o), e.name, e.model, jd.usage); const t = jd.choices?.[0]?.delta?.content; if (t) { started = true; yield t as string; } } catch { /* partial */ }
+          try { const jd = JSON.parse(d); if (jd.usage) usage = jd.usage; const t = jd.choices?.[0]?.delta?.content; if (t) { started = true; yield t as string; } } catch { /* partial */ }
         }
       }
       return;
+      } finally { if (opened) { opened = false; record(taskOf(o), e.name, e.model, usage as Parameters<typeof record>[3]); } }
     } catch (err) { if (started) throw err; errs.push(`${e.name}: ${(err as Error).message}`); console.warn(`[llm-stream] ${taskOf(o)} → ${e.name} ${e.model} failed, trying next: ${String((err as Error).message).slice(0, 200)}`); }
   }
   throw new Error(errs.length ? "All AI providers failed — " + errs.join(" | ") : "No AI provider configured");
