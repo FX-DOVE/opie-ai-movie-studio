@@ -1,13 +1,12 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Clapperboard, Globe2, Shield, Home } from "lucide-react";
+import { Clapperboard, Shield, Home } from "lucide-react";
 import { Logo } from "./ui";
 import { useEffect, useState } from "react";
 
 const NAV = [
   { href: "/studio", label: "Projects", icon: Clapperboard },
-  { href: "/research", label: "Research", icon: Globe2 },
   { href: "/admin", label: "Admin", icon: Shield },
 ];
 
@@ -40,7 +39,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
       </aside>
-      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-white/[0.07] bg-ink-900/95 backdrop-blur md:hidden pb-safe">
+      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-3 border-t border-white/[0.07] bg-ink-900/95 backdrop-blur md:hidden pb-safe">
         {[{ href: "/", label: "Home", icon: Home }, ...NAV].map((n) => {
           const on = n.href === "/" ? path === "/" : path.startsWith(n.href);
           return (

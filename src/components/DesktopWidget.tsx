@@ -2,6 +2,7 @@
 import { usePathname } from "next/navigation";
 import { friendly, H } from "@/lib/net";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ModeToggle, RealDesk, useDesk, useInputMode } from "./RealDesk";
 import { HomeScreen, Scaled, SleepScreen, type DeskApp } from "./DeskApps";
 import { ArrowLeft, ArrowRight, Bot, Hand, Maximize2, Minimize2, Minus, Monitor, RotateCw, Smartphone, Square, X } from "lucide-react";
 
@@ -30,6 +31,7 @@ export function DesktopWidget() {
   const [awake, setAwake] = useState(false);
   const [app, setApp] = useState<DeskApp>(null);
   const [btn, setBtn] = useState<{ r: number; t: number } | null>(null);
+  const d = useDesk(); const [mode, setMode] = useInputMode(); const real = d.state !== "unavailable";
   const moved = useRef(false);
   const fsRef = useRef<HTMLDivElement>(null);
   const busy = useRef(false);
@@ -108,7 +110,7 @@ export function DesktopWidget() {
     if (e.key.length === 1) { e.preventDefault(); send({ t: "type", text: e.key }); }
     else if (["Enter", "Tab", "Backspace", "Escape", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Delete"].includes(e.key)) { e.preventDefault(); send({ t: "key", key: e.key }); }
   };
-  const Screen = ({ cls, cover }: { cls: string; cover?: boolean }) => img
+  const Screen = ({ cls, cover }: { cls: string; cover?: boolean }) => real ? <div className={cls}><RealDesk desk={d} mode={mode} /></div> : img
     ? <img src={img} alt="Agent desktop" draggable={false} onClick={click} className={`${cls} select-none ${cover ? "object-cover" : "object-contain"} ${controlling && !rot ? "cursor-pointer" : ""}`} />
     : live(s) ? <div className={`${cls} grid place-items-center text-center text-ink-500`}><div><Monitor className="mx-auto h-9 w-9" /><p className="mt-2 text-xs">Booting browser…</p></div></div>
     : <div className={`${cls} overflow-hidden`}><Scaled>{awake ? <HomeScreen app={app} setApp={setApp} steps={s?.steps || []} lastScreen={s?.screen} goal={s?.goal} onBrowse={browse} onSleep={() => { setAwake(false); setApp(null); }} /> : <SleepScreen onWake={() => setAwake(true)} />}</Scaled></div>;
@@ -172,7 +174,8 @@ export function DesktopWidget() {
             {last && !controlling && <div className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/80 to-transparent px-3 pb-2 pt-6 text-[11px] text-white/85">{last}</div>}
           </div>
           <div className="flex h-11 shrink-0 items-center gap-2 border-t border-white/[0.06] px-2">
-            {live(s) ? (controlling
+            {real ? (d.state === "awake" ? <><button className={`h-8 px-3 text-xs ${d.control ? "btn-brand" : "btn-outline"}`} onClick={() => d.take(!d.control)}>{d.control ? <><Bot className="h-3.5 w-3.5" />Done</> : <><Hand className="h-3.5 w-3.5" />Take control</>}</button><ModeToggle mode={mode} setMode={setMode} /></> : <span className="text-[11px] text-ink-500">Reel’s computer is asleep</span>)
+            : live(s) ? (controlling
               ? (s?.mode === "manual" ? <span className="text-[11px] text-ink-400">Manual browser — click & type on the screen</span> : <button className="btn-brand h-8 px-3 text-xs" onClick={back}><Bot className="h-3.5 w-3.5" />Hand back to agent</button>)
               : <button className={`h-8 px-3 text-xs ${s?.needsUser ? "btn-brand animate-pulse" : "btn-outline"}`} onClick={take}><Hand className="h-3.5 w-3.5" />Take control</button>)
               : <span className="text-[11px] text-ink-500">{s ? `Session ${s.status}` : "Idle"}</span>}
@@ -188,10 +191,15 @@ export function DesktopWidget() {
       <div ref={fsRef} tabIndex={0} onKeyDown={(e) => { if (e.key === "Escape" && !controlling) exitFs(); else keys(e); }} onMouseMove={poke} onTouchStart={poke}
         onWheel={controlling ? (e) => send({ t: "scroll", dy: Math.max(-800, Math.min(800, e.deltaY * 2)) }) : undefined}
         className="fixed inset-0 z-[80] flex items-center justify-center overflow-hidden bg-black outline-none" style={{ touchAction: "pinch-zoom" }}>
-        <div className={mobile && land ? "fixed inset-0 h-[100dvh] w-screen" : rot ? "absolute left-1/2 top-1/2 h-[100vw] w-[100dvh] -translate-x-1/2 -translate-y-1/2 rotate-90" : mobile ? "relative aspect-video w-full max-h-full" : "absolute inset-0"}>
-          {Screen({ cls: "absolute inset-0 h-full w-full", cover: mobile && land })}
+        <div className={mobile && land ? (real ? "relative aspect-video h-full max-w-full" : "fixed inset-0 h-[100dvh] w-screen") : rot ? "absolute left-1/2 top-1/2 h-[100vw] w-[100dvh] -translate-x-1/2 -translate-y-1/2 rotate-90" : mobile ? "relative aspect-video w-full max-h-full" : "absolute inset-0"}>
+          {Screen({ cls: "absolute inset-0 h-full w-full", cover: mobile && land && !real })}
+          {real && mobile && !land && !rot && d.state === "awake" && <ModeToggle mode={mode} setMode={setMode} className="absolute bottom-full right-2 mb-2" />}
         </div>
-        {mobile && land ? <div className={`transition-opacity duration-300 ${bar ? "opacity-100" : "pointer-events-none opacity-0"}`}>
+        {mobile && land && real ? <>
+          <button aria-label="Exit fullscreen" onClick={exitFs} className="absolute left-[max(0.75rem,env(safe-area-inset-left))] top-3 grid h-10 w-10 place-items-center rounded-full bg-ink-900/90 text-white ring-1 ring-white/10"><X className="h-4 w-4" /></button>
+          {d.state === "awake" && <ModeToggle mode={mode} setMode={setMode} className="absolute right-[max(0.5rem,env(safe-area-inset-right))] top-3 flex-col" />}
+          {d.state === "awake" && <button onClick={() => d.take(!d.control)} className={`absolute bottom-3 right-[max(0.5rem,env(safe-area-inset-right))] w-[64px] rounded-2xl py-2 text-[12px] leading-tight text-white ring-1 ring-white/10 ${d.control ? "bg-brand-500" : "bg-ink-900/95"}`}>{d.control ? "Done" : <>Take<br />control</>}</button>}
+        </> : mobile && land ? <div className={`transition-opacity duration-300 ${bar ? "opacity-100" : "pointer-events-none opacity-0"}`}>
           <button aria-label="Exit fullscreen" onClick={exitFs} className="absolute left-3 top-3 grid h-9 w-9 place-items-center rounded-full bg-black/60 text-white ring-1 ring-white/15 backdrop-blur"><X className="h-4 w-4" /></button>
           {live(s) && <button onClick={controlling ? (s?.mode === "manual" ? stop : back) : take} className="absolute bottom-3 right-3 h-9 rounded-full bg-black/60 px-4 text-sm text-white ring-1 ring-white/15 backdrop-blur">{controlling ? (s?.mode === "manual" ? "Done" : "Hand back") : "Take control"}</button>}
         </div> : mobile ? <>
@@ -207,9 +215,9 @@ export function DesktopWidget() {
               {live(s) && <button className="btn-outline h-8 flex-1 px-2 text-xs text-red-300" onClick={() => { setHelp(false); stop(); }}><Square className="h-3.5 w-3.5" />Stop</button>}</div>
           </div>}
           {rot && <button aria-label="Exit landscape" onClick={rotate} className="absolute bottom-4 left-4 grid h-10 w-10 place-items-center rounded-full bg-ink-900/90 text-white ring-1 ring-white/10"><Minimize2 className="h-4 w-4" /></button>}
-          {live(s) && <button onClick={controlling ? (s?.mode === "manual" ? stop : back) : take} className={`absolute bottom-[max(1.5rem,env(safe-area-inset-bottom))] right-4 h-12 rounded-full px-5 text-[17px] text-white ring-1 ring-white/10 ${s?.needsUser && !controlling ? "bg-brand-500" : "bg-ink-900/95"}`}>{controlling ? (s?.mode === "manual" ? "Done" : "Hand back") : "Take control"}</button>}
-          {controlling && !rot && <input aria-label="Type into the page" placeholder="Type, then ⏎" enterKeyHint="send" className="absolute bottom-[max(1.5rem,env(safe-area-inset-bottom))] left-4 h-12 w-[45%] rounded-full bg-ink-900/95 px-4 text-sm text-white outline-none ring-1 ring-white/10" onKeyDown={(e) => { const t = e.currentTarget; if (e.key === "Enter") { e.preventDefault(); const v = t.value; t.value = ""; (v ? send({ t: "type", text: v }) : Promise.resolve()).then(() => send({ t: "key", key: "Enter" })); } }} />}
-        </> : (
+          {real ? d.state === "awake" && <button onClick={() => d.take(!d.control)} className={`absolute bottom-[max(1.5rem,env(safe-area-inset-bottom))] left-1/2 h-12 -translate-x-1/2 rounded-full px-6 text-[17px] text-white ring-1 ring-white/10 ${d.control ? "bg-brand-500" : "bg-ink-900/95"}`}>{d.control ? "Done" : "Take control"}</button>
+          : live(s) && <button onClick={controlling ? (s?.mode === "manual" ? stop : back) : take} className={`absolute bottom-[max(1.5rem,env(safe-area-inset-bottom))] right-4 h-12 rounded-full px-5 text-[17px] text-white ring-1 ring-white/10 ${s?.needsUser && !controlling ? "bg-brand-500" : "bg-ink-900/95"}`}>{controlling ? (s?.mode === "manual" ? "Done" : "Hand back") : "Take control"}</button>}
+                  </> : (
         <div className={`absolute inset-x-0 top-0 flex items-center gap-1.5 bg-gradient-to-b from-black/85 via-black/50 to-transparent px-3 pb-6 pt-3 transition-opacity duration-300 ${bar || !img ? "opacity-100" : "pointer-events-none opacity-0"}`}>
           <span className={`h-2 w-2 shrink-0 rounded-full ${running ? "animate-pulse bg-emerald-400" : live(s) ? "bg-amber-400" : "bg-ink-500"}`} />
           <span className="min-w-0 flex-1 truncate text-xs text-white/80">{s?.pageUrl || "ReelForge computer"}</span>

@@ -27,7 +27,7 @@ Built for the Meta Global AI Developer Hackathon 2026.
 ```
 Next.js 15 (App Router, standalone) ─ Tailwind v4 ─ lucide-react
 │
-├─ src/app            pages: / (landing), /studio, /studio/[id], /research, /admin
+├─ src/app            pages: / (landing), /studio, /studio/[id], /admin (old /research redirects to /studio; research runs through Reel's chat)
 │  └─ api/            projects, actions, brainstorm (NDJSON), agent (NDJSON), research, jobs, files, admin
 ├─ src/lib
 │  ├─ providers/meta.ts   provider chain: Meta models first, OpenAI-compatible fallback, local demo
@@ -71,8 +71,26 @@ Requires `ffmpeg` on PATH. To run with Docker: `docker compose up --build`.
 | `FALLBACK_*` / `XAI_API_KEY` | Any OpenAI-compatible fallback (optional) |
 | `ELEVENLABS_API_KEY`, `YOUTUBE_API_KEY` | Premium voices and YouTube Data API (optional) |
 | `DATA_DIR`, `CHROMIUM_PATH` | Storage location and browser binary |
+| `DESK_URL`, `DESK_CDP_URL`, `DESK_AGENT` | Reel's computer service (default `http://127.0.0.1:7900`, CDP `:9333`); `DESK_AGENT=0` keeps the agent on its own headless browser |
 
 Keys added in `/admin` are stored encrypted (AES-GCM with `APP_SECRET`) in `data/`. `.env` and `data/` are git-ignored.
+
+## Reel's computer (real Linux desktop)
+
+`desk/` is a small, dependency-free service (`desk/server.mjs`) that runs a real desktop: **Xvfb 1280×720 + Openbox + tint2 + PCManFM (desktop icons, file manager) + xterm + Chromium**. Desktop icons are Files, Terminal and Browser.
+
+- **Streaming:** `ffmpeg -f x11grab` makes a 5 fps MJPEG feed. The app proxies `GET /api/desk/frame` and `/api/desk/status`, so everything goes through the app's single URL, including tunnels. No extra port or websocket is needed.
+- **Input:** `POST /api/desk/input` runs `xdotool` (move, click, right-click, scroll, type, key).
+- **Phone controls:** one **Take control / Done** button. Taking control pauses the agent; Done hands control back. There are two input modes, saved in the browser:
+  - **Mouse mode** works like a trackpad: drag to move the cursor, tap to click, two-finger scroll, long-press to right-click.
+  - **Touch mode:** tap where you touch, swipe to scroll, long-press to right-click.
+- **Phone keyboard:** tapping a text field focuses a hidden input, so the native keyboard opens with no visible bar and no zoom. It closes again if the remote focus isn't a text field. Focus is checked through Chromium CDP, or the window class for xterm.
+- **Agent:** the research tool connects to the **same Chromium** over CDP (`--remote-debugging-port=9333`), so you watch it work and can take over the same session.
+- **Persistence:** home and the Chromium profile live in `DESK_HOME` (`data/desk-home`, or the `desk-home` volume).
+- **Sleep:** with no viewer for `DESK_IDLE_MIN` minutes (default 10) the stack is frozen (SIGSTOP, zero CPU, windows kept) and the stream stops. "Tap to wake" resumes it.
+- **Footprint:** about 350–700 MB RAM with Chromium open and well under one core when idle, so it fits a ~$10 VPS (1–2 vCPU, 2–4 GB). `docker-compose.yml` caps each service at 1 CPU / 1.5 GB.
+
+Run locally without Docker: `apt install xvfb openbox tint2 pcmanfm xterm xdotool ffmpeg chromium`, then `DESK_CHROME=$(which chromium) node desk/server.mjs`. With Docker, `docker compose up --build` starts `desk` and the app, sharing one network namespace so CDP stays on localhost.
 
 ## Security notes
 

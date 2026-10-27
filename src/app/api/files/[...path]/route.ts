@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { MEDIA_DIR } from "@/lib/db";
+import { remoteUrl } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 const TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".mp3": "audio/mpeg", ".mp4": "video/mp4", ".srt": "text/plain" };
@@ -11,6 +12,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ path: st
   if (!abs.startsWith(MEDIA_DIR + path.sep) || !fs.existsSync(abs)) return new Response("not found", { status: 404 });
   const stat = fs.statSync(abs);
   const type = TYPES[path.extname(abs).toLowerCase()] || "application/octet-stream";
+  const remote = await remoteUrl(rel, type); // R2 enabled → presigned redirect; otherwise local disk
+  if (remote) return Response.redirect(remote, 302);
   const range = req.headers.get("range");
   if (range) {
     const m = range.match(/bytes=(\d*)-(\d*)/);

@@ -30,6 +30,7 @@ export function AgentChat({ projectId, onSession, className = "", starters }: { 
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); if (!busy) sessionStorage.setItem("opie-chat", JSON.stringify(items.slice(-60))); }, [items, busy, thinking]);
 
   const [files, setFiles] = useState<{ name: string; text?: string }[]>([]);
+  useEffect(() => { const f = (e: Event) => { const t = (e as CustomEvent).detail?.text; if (t) setInput(t); }; window.addEventListener("rf:chat", f); return () => window.removeEventListener("rf:chat", f); }, []);
   const fileRef = useRef<HTMLInputElement>(null);
   const send = async (text = input) => {
     let msg = text.trim(); if (!msg && !files.length) return; setInput("");
@@ -111,7 +112,7 @@ export function FloatingAgent() {
   const [muted, setMuted] = useState(false);
   useEffect(() => { setMuted(localStorage.getItem("rf-mute") === "1"); const o = () => setOpen(true); window.addEventListener("rf:chat", o); return () => window.removeEventListener("rf:chat", o); }, []);
   useEffect(() => { if (!open) return; const k = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false); addEventListener("keydown", k); const mob = matchMedia("(max-width: 767px)").matches; if (mob) document.body.style.overflow = "hidden"; return () => { removeEventListener("keydown", k); document.body.style.overflow = ""; }; }, [open]);
-  if (path.startsWith("/research") || path.startsWith("/admin")) return null;
+  if (path.startsWith("/admin")) return null;
   const projectId = path.match(/^\/studio\/([^/]+)/)?.[1];
   const mute = () => { const m = !muted; setMuted(m); localStorage.setItem("rf-mute", m ? "1" : "0"); };
   return (

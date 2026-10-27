@@ -1,3 +1,4 @@
+import { deskContext } from "./desk";
 import { nanoid } from "nanoid";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import path from "node:path";
@@ -15,12 +16,13 @@ export interface Session {
   status: "running" | "paused" | "done" | "error" | "stopped";
   steps: Step[]; notes: string; findings: string[]; trending: Video[]; frames: string[]; transcript?: string;
   mode: "meta-wonder" | "llm-agent" | "scripted" | "manual"; provider: string; error?: string;
-  stop?: boolean; pause?: boolean; maxSteps: number; screen?: string; pageUrl?: string; startedAt: string; savedToProject?: boolean;
+  stop?: boolean; pause?: boolean; maxSteps: number; screen?: string; pageUrl?: string; startedAt: string; savedToProject?: boolean; onDesk?: boolean;
 }
 
 const g = globalThis as unknown as { __opieResearch?: Map<string, Session> };
 const sessions = (g.__opieResearch ||= new Map());
 export const getSession = (id: string) => sessions.get(id);
+export const allSessions = () => [...sessions.values()];
 export const listSessions = () => [...sessions.values()].sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 20).map(({ id, goal, task, status, startedAt, provider }) => ({ id, goal, task, status, startedAt, provider }));
 /** Client-safe view (drops heavy per-step screenshots except the last few). */
 export function viewSession(s: Session, since = 0) { return { ...s, steps: s.steps.filter((x) => x.n > since) }; }
@@ -409,7 +411,9 @@ export function startResearch(o: { goal: string; task?: Task; url?: string; proj
     try {
       await log(s, null, `Boot virtual desktop (headless Chromium ${W}×${H}) — ${mode === "scripted" ? "demo scripted mode" : `agent: ${s.provider}`}`, undefined, "info");
       await youtubeApi(s);
-      const page = await (await profileContext()).newPage(); pages.set(s.id, page);
+      // Prefer the real desktop's Chromium so the user watches (and can take over) the same browser.
+      const dctx = await deskContext().catch(() => null); if (dctx) { s.onDesk = true; await log(s, null, "Using Reel’s computer (real Linux desktop Chromium)", undefined, "info"); }
+      const page = await (dctx || await profileContext()).newPage(); pages.set(s.id, page);
       if (mode === "meta-wonder") { try { await wonderLoop(s, page); } catch (e) { await log(s, null, "Muse Wonder unavailable — switching to vision agent", (e as Error).message.slice(0, 200), "error"); await llmLoop(s, page); } }
       else if (mode === "llm-agent") await llmLoop(s, page);
       else await scripted(s, page);
@@ -418,7 +422,7 @@ export function startResearch(o: { goal: string; task?: Task; url?: string; proj
       if (s.stop && !s.notes && s.findings.length) s.notes = `## Partial notes — ${s.goal}\n${s.findings.map((f) => "- " + f).join("\n")}`;
     } catch (e) { s.status = "error"; s.error = (e as Error).message.slice(0, 400); }
     finally {
-      await pages.get(s.id)?.close().catch(() => {}); pages.delete(s.id);
+      if (!s.onDesk) await pages.get(s.id)?.close().catch(() => {}); pages.delete(s.id);
       if (s.projectId && s.notes) {
         await db.update(s.projectId, (x) => { const at = new Date().toISOString(); (x.research ||= []).push({ id: s.id, goal: s.goal, notes: s.notes, at, provider: s.provider }); x.brainstorm.push({ role: "assistant", kind: "note", content: `📎 Research notes attached: ${s.goal}`, at }); }).then(() => (s.savedToProject = true)).catch(() => {});
       }

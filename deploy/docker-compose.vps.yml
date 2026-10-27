@@ -1,0 +1,24 @@
+# Small-VPS deployment (1 vCPU / 4 GB): prebuilt app + Reel's computer. Caddy (host) proxies to 172.17.0.1:3420.
+services:
+  desk:
+    build: ./desk
+    ports: ["172.17.0.1:3420:3000"]
+    environment: { DESK_IDLE_MIN: "5", DESK_FPS: "4" }
+    volumes: ["desk-home:/home/reel/home"]
+    shm_size: 256m
+    restart: unless-stopped
+    mem_limit: 1100m
+    cpus: 0.9
+  app:
+    build: { context: ./app, dockerfile: Dockerfile.prebuilt }
+    network_mode: "service:desk"
+    env_file: .env
+    environment: { DATA_DIR: /data }
+    volumes: ["app-data:/data"]
+    depends_on: [desk]
+    restart: unless-stopped
+    mem_limit: 700m
+    cpus: 0.9
+volumes:
+  app-data:
+  desk-home:

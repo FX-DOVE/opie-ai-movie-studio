@@ -1,11 +1,26 @@
 services:
+  # Reel's computer — the real Linux desktop the agent drives and you can take over.
+  desk:
+    build: ./desk
+    ports: ["3000:3000"]          # the app shares this network namespace (see below)
+    volumes: ["desk-home:/home/reel/home"]   # home folder + Chromium profile persist
+    shm_size: 512m
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 1536M }
   opie:
     build: .
-    ports: ["3000:3000"]
+    network_mode: "service:desk"  # app reaches the desktop on 127.0.0.1:7900 and Chromium CDP on 127.0.0.1:9333
     env_file: .env
     environment:
       DATA_DIR: /data
     volumes: ["opie-data:/data"]
+    depends_on: [desk]
     restart: unless-stopped
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 1536M }
 volumes:
   opie-data:
+  desk-home:

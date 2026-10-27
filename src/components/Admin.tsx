@@ -47,15 +47,16 @@ function Group({ title, fields, onSaved }: { title: string; fields: Field[]; onS
     <section className="panel mt-6 p-5 sm:p-6">
       <div className="mb-4 flex items-center justify-between gap-3"><h2 className="font-semibold">{title}</h2>
         <button className="btn-primary" disabled={!dirty || busy} onClick={save}>{busy ? <Spinner /> : <Save className="h-4 w-4" />}Save</button></div>
+      {title.startsWith("Storage") && <R2Help />}
       <div className="grid gap-4 md:grid-cols-2">
         {fields.map((f) => (
           <label key={f.key} className="block">
             <span className="label flex items-center gap-2">{f.secret && <KeyRound className="h-3 w-3" />}{f.label}<span className={`ml-auto normal-case tracking-normal ${f.source === "unset" ? "text-ink-600" : "text-emerald-300/80"}`}>{f.source}</span></span>
             {f.options ? (
-              <select className="input h-10" value={vals[f.key] ?? f.value} onChange={(e) => setVals({ ...vals, [f.key]: e.target.value })}>{f.options.map((o) => <option key={o}>{o}</option>)}</select>
+              <select className="input h-10" value={vals[f.key] ?? f.value} onChange={(e) => setVals({ ...vals, [f.key]: e.target.value, ...(f.key === "R2_ACCOUNT_ID" ? {} : {}) })}>{f.options.map((o) => <option key={o}>{o}</option>)}</select>
             ) : (
               <div className="relative">
-                <input className="input h-10 pr-10" type={f.secret && !show[f.key] ? "password" : "text"} autoComplete="off" placeholder={f.secret ? (f.value || "Not set") : f.default || ""} value={vals[f.key] ?? (f.secret ? "" : f.value)} onChange={(e) => setVals({ ...vals, [f.key]: e.target.value })} />
+                <input className="input h-10 pr-10" type={f.secret && !show[f.key] ? "password" : "text"} autoComplete="off" placeholder={f.secret ? (f.value || "Not set") : f.default || ""} value={vals[f.key] ?? (f.secret ? "" : f.value)} onChange={(e) => setVals({ ...vals, [f.key]: e.target.value, ...(f.key === "R2_ACCOUNT_ID" && /^[a-f0-9]{32}$/.test(e.target.value) ? { R2_ENDPOINT: `https://${e.target.value}.r2.cloudflarestorage.com` } : {}) })} />
                 {f.secret && <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-400" onClick={() => setShow({ ...show, [f.key]: !show[f.key] })}>{show[f.key] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>}
               </div>
             )}
@@ -66,6 +67,23 @@ function Group({ title, fields, onSaved }: { title: string; fields: Field[]; onS
       </div>
     </section>
   );
+}
+
+function R2Help() {
+  const [res, setRes] = useState<{ ok: boolean; message: string; mode?: string } | null>(null); const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState("");
+  useEffect(() => { fetch("/api/admin/storage").then((r) => r.json()).then((j) => setMode(j.mode)).catch(() => {}); }, []);
+  const test = async () => { setBusy(true); setRes(null); try { const j = await (await fetch("/api/admin/storage", { method: "POST" })).json(); setRes(j); setMode(j.mode); } catch (e) { setRes({ ok: false, message: String(e) }); } setBusy(false); };
+  return <div className="mb-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 text-xs text-ink-300">
+    <div className="flex flex-wrap items-center gap-2"><span>Storage in use: <b className="text-white">{mode === "r2" ? "Cloudflare R2" : "Local disk"}</b></span>
+      <button className="btn-outline ml-auto h-8 px-3 text-xs" disabled={busy} onClick={test}>{busy ? <Spinner /> : null}Test connection</button></div>
+    {res && <p role="status" className={`mt-2 ${res.ok ? "text-emerald-300" : "text-red-300"}`}>{res.ok ? "✓ " : "✗ "}{res.message}</p>}
+    <ol className="mt-2 list-decimal space-y-0.5 pl-4 text-ink-400">
+      <li>Cloudflare dashboard → R2 → <b>Manage R2 API Tokens</b> → Create API token.</li>
+      <li>Permission <b>Object Read &amp; Write</b>, limited to the <b>cineforge</b> bucket → Create.</li>
+      <li>Paste the Access Key ID and Secret Access Key here, Save, Test connection, then set Enable R2 = on.</li>
+    </ol>
+  </div>;
 }
 
 function Login({ onDone }: { onDone: () => void }) {

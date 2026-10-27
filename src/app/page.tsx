@@ -23,7 +23,6 @@ export default function Landing() {
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 sm:px-8">
           <Logo />
           <nav className="flex items-center gap-1 sm:gap-2">
-            <Link href="/research" className="btn-ghost hidden sm:inline-flex">Research desk</Link>
             <Link href="/admin" className="btn-ghost hidden sm:inline-flex">Admin</Link>
             <Link href="/studio" className="btn-primary">Open studio</Link>
           </nav>

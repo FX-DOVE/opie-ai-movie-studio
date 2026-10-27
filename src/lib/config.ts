@@ -28,6 +28,13 @@ export const FIELDS: FieldDef[] = [
   { key: "YOUTUBE_REGION", label: "Trending region", secret: false, group: "Research agent", default: "NG" },
   { key: "E2B_API_KEY", label: "E2B API key (optional cloud desktop)", secret: true, group: "Research agent", env: "E2B_API_KEY" },
   { key: "RESEARCH_MAX_STEPS", label: "Max agent steps", secret: false, group: "Research agent", default: "12" },
+  { key: "R2_ENABLED", label: "Enable R2", secret: false, group: "Storage (Cloudflare R2)", default: "off", options: ["off", "on"], env: "R2_ENABLED", help: "on = new media is served from R2 via presigned URLs; off (or missing keys) = local disk. Switches live." },
+  { key: "R2_ACCOUNT_ID", label: "Account ID", secret: false, group: "Storage (Cloudflare R2)", default: "5e3ffff9e6e200b628fd7e28fad77a07", env: "R2_ACCOUNT_ID" },
+  { key: "R2_ACCESS_KEY_ID", label: "Access Key ID", secret: true, group: "Storage (Cloudflare R2)", env: "R2_ACCESS_KEY_ID" },
+  { key: "R2_SECRET_ACCESS_KEY", label: "Secret Access Key", secret: true, group: "Storage (Cloudflare R2)", env: "R2_SECRET_ACCESS_KEY", help: "Stored encrypted on the server; never shown again." },
+  { key: "R2_BUCKET", label: "Bucket", secret: false, group: "Storage (Cloudflare R2)", default: "cineforge", env: "R2_BUCKET" },
+  { key: "R2_ENDPOINT", label: "Endpoint", secret: false, group: "Storage (Cloudflare R2)", default: "https://5e3ffff9e6e200b628fd7e28fad77a07.r2.cloudflarestorage.com", env: "R2_ENDPOINT", help: "Auto-filled from the Account ID." },
+  { key: "R2_PUBLIC_URL", label: "Public URL base (optional)", secret: false, group: "Storage (Cloudflare R2)", env: "R2_PUBLIC_URL", help: "e.g. https://media.example.com or the bucket’s r2.dev URL — used instead of presigned links." },
 ];
 
 export function getConfig(key: string): string | undefined {
@@ -70,7 +77,7 @@ export function liveStatus() {
 export function fallbackKey() { return getConfig("FALLBACK_API_KEY") || (/x\.ai/.test(getConfig("FALLBACK_BASE_URL") || "") ? getConfig("XAI_API_KEY") : undefined); }
 export function fallbackName() {
   const u = getConfig("FALLBACK_BASE_URL") || "";
-  return /x\.ai/.test(u) ? "xAI Grok" : /openai\.com/.test(u) ? "OpenAI" : /openrouter/.test(u) ? "OpenRouter" : /groq/.test(u) ? "Groq" : /localhost|127\.0/.test(u) ? "Local LLM" : "OpenAI-compatible";
+  return /x\.ai/.test(u) ? "xAI Grok" : /openai\.com/.test(u) ? "OpenAI" : /openrouter/.test(u) ? "OpenRouter" : /groq/.test(u) ? "Groq" : /omniroute|:20127/.test(u) ? "OmniRoute" : /localhost|127\.0/.test(u) ? "Local LLM" : "OpenAI-compatible";
 }
 /** Ordered provider chain actually usable right now. */
 export function llmChain(): ("meta" | "fallback")[] {
