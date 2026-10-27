@@ -18,7 +18,7 @@ async function setRender(id: string, patch: Partial<Project["render"]>) {
 }
 
 /** Shot length that fits its voice line: the line plus a short breath, never a long hold of dead air. */
-export function fitDuration(audioSec: number) { return Math.max(2.2, Math.round((audioSec + 0.85) * 10) / 10); }
+export function fitDuration(audioSec: number) { return Math.max(2, Math.round((audioSec + 0.6) * 10) / 10); }
 /** Silent (no-line) shots are kept short so the cut doesn't sag between lines. */
 const SILENT_MAX = 3.5;
 
