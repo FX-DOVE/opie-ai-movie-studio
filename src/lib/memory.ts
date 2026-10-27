@@ -14,7 +14,7 @@ export const MAX_NOTES = 40;
 const MAX_LEN = 160;
 
 export type LearnEvent = { kind: string; detail?: string; before?: string; after?: string };
-type Pending = { events: (LearnEvent & { mode: string; style: string; format: string })[]; timer?: NodeJS.Timeout; running?: boolean };
+type Pending = { events: (LearnEvent & { mode: string; style: string; format: string })[]; timer?: NodeJS.Timeout; running?: Promise<void> };
 const g = globalThis as unknown as { __rfLearn?: Map<string, Pending> };
 const pending = (g.__rfLearn ||= new Map());
 
@@ -43,14 +43,18 @@ export function learn(uid: string | undefined, p: Pick<Project, "mode" | "style"
 }
 /** Distill now (used by the debounce timer and by tests). */
 export async function flush(uid: string) {
-  const q = pending.get(uid); if (!q || q.running || !q.events.length) return;
-  q.running = true; const events = q.events.splice(0);
-  try {
-    const mem = db.getMemory(uid); if (!mem.enabled) return;
-    const ops = await distill(mem.notes, events);
-    await db.setMemory(uid, (m) => applyOps(m.notes, ops));
-  } catch (e) { console.warn("[memory] distill failed:", (e as Error).message); }
-  finally { q.running = false; if (q.events.length) q.timer = setTimeout(() => void flush(uid), 2000); }
+  const q = pending.get(uid); if (!q) return;
+  if (q.running) { await q.running; return flush(uid); } // a distill is in flight: wait for it, then take whatever queued meanwhile
+  if (!q.events.length) return;
+  clearTimeout(q.timer); const events = q.events.splice(0);
+  q.running = (async () => {
+    try {
+      const mem = db.getMemory(uid); if (!mem.enabled) return;
+      const ops = await distill(mem.notes, events);
+      await db.setMemory(uid, (m) => applyOps(m.notes, ops));
+    } catch (e) { console.warn("[memory] distill failed:", (e as Error).message); }
+  })();
+  try { await q.running; } finally { q.running = undefined; if (q.events.length) q.timer = setTimeout(() => void flush(uid), 2000); }
 }
 type Ops = { add?: { text: string; category: string }[]; update?: { id: string; text: string; category?: string }[]; remove?: string[]; reinforce?: string[] };
 
