@@ -35,10 +35,14 @@ export function AgentChat({ projectId, onSession, className = "", starters }: { 
   };
   const conv = useRef<string | undefined>(undefined);
   const end = useRef<HTMLDivElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const toEnd = () => { const l = list.current; if (l) l.scrollTop = l.scrollHeight; };
   const router = useRouter();
   useEffect(() => { conv.current = sessionStorage.getItem("opie-conv") || undefined; try { setItems(JSON.parse(sessionStorage.getItem("opie-chat") || "[]")); } catch { /* */ } }, []);
-  useEffect(() => { end.current?.scrollIntoView({ block: "end" }); if (!busy) sessionStorage.setItem("opie-chat", JSON.stringify(items.slice(-60))); }, [items, busy, thinking]);
+  useEffect(() => { toEnd(); if (!busy) sessionStorage.setItem("opie-chat", JSON.stringify(items.slice(-60))); }, [items, busy, thinking]);
 
+  // the keyboard opening shrinks the list (the sheet follows the visual viewport): keep the latest message in view
+  useEffect(() => { const l = list.current; if (!l || typeof ResizeObserver === "undefined") return; let h = l.clientHeight; const ro = new ResizeObserver(() => { if (l.clientHeight < h) toEnd(); h = l.clientHeight; }); ro.observe(l); return () => ro.disconnect(); }, []);
   const [files, setFiles] = useState<{ name: string; text?: string }[]>([]);
   useEffect(() => { const f = (e: Event) => { const t = (e as CustomEvent).detail?.text; if (t) setInput(t); }; window.addEventListener("rf:chat", f); return () => window.removeEventListener("rf:chat", f); }, []);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -96,7 +100,7 @@ export function AgentChat({ projectId, onSession, className = "", starters }: { 
 
   return (
     <div className={`flex min-h-0 flex-col ${className}`}>
-      <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto overscroll-contain px-3 py-4 text-[15px] sm:text-sm">
+      <div ref={list} className="min-h-0 flex-1 space-y-2.5 overflow-y-auto overscroll-contain px-3 py-4 text-[15px] sm:text-sm">
         {!items.length && <div className="flex flex-col items-center px-4 pt-6 text-center">
           <Mascot size={72} still />
           <p className="mt-4 text-base font-medium text-white">Hi, I’m Reel.</p>
@@ -114,14 +118,14 @@ export function AgentChat({ projectId, onSession, className = "", starters }: { 
         {thinking && <div className="flex items-end gap-2" aria-label="Reel is typing"><img src="/brand/reel.webp" alt="" className="h-7 w-7 rounded-full" /><div className="dot-typing flex gap-1 rounded-[20px] rounded-bl-md bg-ink-800 px-4 py-3">{[0, 1, 2].map((d) => <span key={d} className="h-1.5 w-1.5 rounded-full bg-ink-300" />)}</div></div>}
         <div ref={end} />
       </div>
-      <div className="pb-safe border-t border-white/[0.06] bg-ink-950 px-3 pt-2">
+      <div className="pb-safe shrink-0 border-t border-white/[0.06] bg-ink-950 px-3 pt-2">
         {rjob && <div className="mb-2"><ResearchBar job={rjob} onDone={(st) => researchDone(rjob, st)} /></div>}
         {files.length > 0 && <div className="mb-2 flex flex-wrap gap-1.5">{files.map((f, j) => <span key={j} className="chip h-7">📎 {f.name}<button aria-label="Remove attachment" onClick={() => setFiles((x) => x.filter((_, k) => k !== j))}><X className="h-3 w-3" /></button></span>)}</div>}
         <div className="mb-2 flex items-end gap-2">
           <input ref={fileRef} type="file" multiple hidden onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
           <button aria-label="Attach file" className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-ink-400 hover:bg-white/5 hover:text-white" onClick={() => fileRef.current?.click()}><Paperclip className="h-5 w-5" /></button>
           <div className="flex min-h-10 flex-1 items-end rounded-[22px] border border-white/10 bg-ink-900 pl-4 pr-1 focus-within:border-white/25">
-            <textarea rows={1} value={input} onChange={(e) => { setInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 128) + "px"; }} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !matchMedia("(pointer: coarse)").matches) { e.preventDefault(); send(); } }} placeholder={busy ? "Redirect Reel, or say “stop”…" : "Message Reel"} aria-label="Message" className="max-h-32 min-h-[38px] flex-1 resize-none bg-transparent py-2 text-base leading-6 outline-none placeholder:text-ink-500 sm:text-sm" />
+            <textarea rows={1} value={input} onChange={(e) => { setInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 128) + "px"; }} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !matchMedia("(pointer: coarse)").matches) { e.preventDefault(); send(); } }} placeholder={busy ? "Redirect Reel, or say “stop”…" : "Message Reel"} aria-label="Message" enterKeyHint="send" autoComplete="off" className="max-h-32 min-h-[38px] flex-1 resize-none bg-transparent py-2 text-[16px] leading-6 outline-none placeholder:text-ink-500 md:text-sm" />
             {busy && !input ? <button aria-label="Stop" className="m-1 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white text-ink-950" onClick={() => send("stop")}><Square className="h-3.5 w-3.5 fill-current" /></button>
               : <button aria-label="Send" className="m-1 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand-500 text-ink-950 disabled:bg-white/10 disabled:text-ink-500" disabled={!input.trim() && !files.length} onClick={() => send()}><ArrowUp className="h-4 w-4" /></button>}
           </div>
@@ -138,13 +142,36 @@ export function FloatingAgent() {
   const [open, setOpen] = useState(false);
   const [muted, setMuted] = useState(false);
   useEffect(() => { setMuted(localStorage.getItem("rf-mute") === "1"); const o = () => setOpen(true); window.addEventListener("rf:chat", o); return () => window.removeEventListener("rf:chat", o); }, []);
-  useEffect(() => { if (!open) return; const k = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false); addEventListener("keydown", k); const mob = matchMedia("(max-width: 767px)").matches; if (mob) document.body.style.overflow = "hidden"; return () => { removeEventListener("keydown", k); document.body.style.overflow = ""; }; }, [open]);
+  const sheet = useRef<HTMLDivElement>(null);
+  const [mob, setMob] = useState(false);
+  const [vv, setVv] = useState<{ top: number; h: number } | null>(null);
+  useEffect(() => {
+    if (!open) return; const k = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false); addEventListener("keydown", k);
+    const m = matchMedia("(max-width: 767px)").matches; setMob(m);
+    if (!m) return () => removeEventListener("keydown", k);
+    // Phone: an opaque layer the size of the VISUAL viewport (iOS doesn't shrink the layout viewport for the keyboard), so the
+    // composer sits flush on the keyboard with nothing from the page showing through. The page behind is frozen and inert
+    // (no scroll, and no other inputs for the iOS form bar's ‹ › arrows to jump to).
+    const v = window.visualViewport; let raf = 0;
+    const fit = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => setVv(v ? { top: Math.max(0, v.offsetTop), h: Math.round(v.height) } : null)); };
+    fit(); v?.addEventListener("resize", fit); v?.addEventListener("scroll", fit);
+    const y = scrollY, b = document.body.style, prev = { position: b.position, top: b.top, width: b.width, overflow: b.overflow };
+    Object.assign(b, { position: "fixed", top: `-${y}px`, width: "100%", overflow: "hidden" });
+    const others = [...document.body.children].filter((el) => el !== sheet.current && !el.contains(sheet.current) && !el.hasAttribute("inert") && el.tagName !== "SCRIPT");
+    others.forEach((el) => el.setAttribute("inert", ""));
+    return () => {
+      removeEventListener("keydown", k); cancelAnimationFrame(raf); v?.removeEventListener("resize", fit); v?.removeEventListener("scroll", fit);
+      others.forEach((el) => el.removeAttribute("inert")); Object.assign(b, prev); scrollTo(0, y); setVv(null);
+    };
+  }, [open]);
   if (path.startsWith("/admin")) return null;
   const projectId = path.match(/^\/studio\/([^/]+)/)?.[1];
   const mute = () => { const m = !muted; setMuted(m); localStorage.setItem("rf-mute", m ? "1" : "0"); };
   return (
     <>
-      {open && <div role="dialog" aria-label="Chat with Reel" className="fixed inset-0 z-[70] flex h-[100dvh] flex-col bg-ink-950 md:inset-auto md:bottom-6 md:right-6 md:h-[min(760px,calc(100dvh-48px))] md:w-[520px] md:overflow-hidden md:rounded-3xl md:border md:border-white/10 md:shadow-[0_40px_120px_-20px_rgba(0,0,0,.8)]">
+      {open && mob && <div aria-hidden className="fixed inset-x-0 -top-[50vh] z-[69] h-[200vh] bg-ink-950 md:hidden" />}
+      {open && <div ref={sheet} role="dialog" aria-modal="true" aria-label="Chat with Reel" style={mob && vv ? { top: vv.top, height: vv.h, bottom: "auto" } : undefined}
+        className="fixed inset-x-0 top-0 z-[70] flex h-[100dvh] flex-col overflow-hidden overscroll-none bg-ink-950 md:inset-auto md:bottom-6 md:right-6 md:h-[min(760px,calc(100dvh-48px))] md:w-[520px] md:overflow-hidden md:rounded-3xl md:border md:border-white/10 md:shadow-[0_40px_120px_-20px_rgba(0,0,0,.8)]">
         <header className="pt-safe shrink-0 border-b border-white/[0.06] bg-ink-950/95 backdrop-blur">
           <div className="flex h-14 items-center gap-3 px-2 md:px-4">
             <button aria-label="Close chat" className="grid h-10 w-10 place-items-center rounded-full text-ink-300 hover:bg-white/5 md:hidden" onClick={() => setOpen(false)}><ChevronLeft className="h-6 w-6" /></button>

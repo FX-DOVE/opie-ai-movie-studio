@@ -96,7 +96,7 @@ export function Workspace({ id }: { id: string }) {
     if (r.ok) setP(await r.json());
   };
 
-  if (missing) return <div className="grid min-h-dvh place-items-center text-ink-400">Project not found. <Link href="/studio" className="btn-outline mt-4">Back to projects</Link></div>;
+  if (missing) return <div className="grid min-h-dvh place-items-center text-ink-400">Project not found. <Link href="/dashboard" className="btn-outline mt-4">Back to projects</Link></div>;
   if (!p) return <div className="grid min-h-dvh place-items-center"><Spinner className="h-6 w-6" /></div>;
 
   const props = { p, act, busy, setP, toast, voices };
@@ -108,7 +108,7 @@ export function Workspace({ id }: { id: string }) {
       {/* Left rail: project nav (Flow-like) */}
       <aside className="sticky top-0 hidden h-dvh w-[232px] shrink-0 flex-col border-r border-white/[0.06] bg-ink-900/70 lg:flex">
         <div className="flex h-14 items-center gap-2 border-b border-white/[0.06] px-4">
-          <Link href="/studio" className="btn-ghost h-8 w-8 px-0" aria-label="Back"><ArrowLeft className="h-4 w-4" /></Link>
+          <Link href="/dashboard" className="btn-ghost h-8 w-8 px-0" aria-label="Back"><ArrowLeft className="h-4 w-4" /></Link>
           <span className="truncate text-sm font-semibold">{p.title}</span>
         </div>
         <nav className="flex flex-col gap-1 p-3">
@@ -136,7 +136,7 @@ export function Workspace({ id }: { id: string }) {
         {/* Top bar for < lg */}
         <header className="sticky top-0 z-30 border-b border-white/[0.06] bg-ink-950/90 backdrop-blur lg:hidden">
           <div className="flex h-14 items-center gap-2 pl-3 pr-14 sm:pl-5 sm:pr-16">
-            <Link href="/studio" className="btn-ghost h-9 w-9 px-0" aria-label="Back"><ArrowLeft className="h-4 w-4" /></Link>
+            <Link href="/dashboard" className="btn-ghost h-9 w-9 px-0" aria-label="Back"><ArrowLeft className="h-4 w-4" /></Link>
             <span className="min-w-0 flex-1 truncate font-semibold">{p.title}</span>
             <StatusPill />
             <button className="btn-ghost h-9 w-9 px-0" onClick={() => setPipe(true)} aria-label="Pipeline"><Workflow className="h-4 w-4 text-sky-300" /></button>

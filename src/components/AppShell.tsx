@@ -1,12 +1,12 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Clapperboard, Shield, Home, Settings } from "lucide-react";
+import { Clapperboard, Shield, Globe, Settings } from "lucide-react";
 import { Logo } from "./ui";
 import { useEffect, useState } from "react";
 
 const BASE_NAV = [
-  { href: "/studio", label: "Projects", icon: Clapperboard },
+  { href: "/dashboard", label: "Projects", icon: Clapperboard },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 const ADMIN_NAV = { href: "/admin", label: "Admin", icon: Shield };
@@ -34,10 +34,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-dvh md:pl-[76px]">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-[76px] flex-col items-center border-r border-white/[0.06] bg-ink-900/80 backdrop-blur py-4 md:flex">
-        <Link href="/" aria-label="Home"><Logo small /></Link>
+        <Link href="/dashboard" aria-label="Dashboard"><Logo small /></Link>
         <nav className="mt-8 flex flex-col gap-2">
           {NAV.map((n) => {
-            const on = path.startsWith(n.href);
+            const on = path.startsWith(n.href) || (n.href === "/dashboard" && path.startsWith("/studio"));
             return (
               <Link key={n.href} href={n.href} className={`group flex w-[60px] flex-col items-center gap-1 rounded-xl py-2.5 text-[10px] font-medium transition-colors ${on ? "bg-white/[0.08] text-white" : "text-ink-400 hover:text-white hover:bg-white/[0.04]"}`}>
                 <n.icon className="h-5 w-5" />{n.label}
@@ -45,10 +45,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
+        <Link href="/?site" title="ReelForge website" className="mt-auto flex w-[60px] flex-col items-center gap-1 rounded-xl py-2.5 text-[10px] font-medium text-ink-500 hover:bg-white/[0.04] hover:text-white"><Globe className="h-5 w-5" />Website</Link>
       </aside>
       <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-flow-col auto-cols-fr border-t border-white/[0.07] bg-ink-900/95 backdrop-blur md:hidden pb-safe">
-        {[{ href: "/", label: "Home", icon: Home }, ...NAV].map((n) => {
-          const on = n.href === "/" ? path === "/" : path.startsWith(n.href);
+        {[...NAV, { href: "/?site", label: "Website", icon: Globe }].map((n) => {
+          const on = path.startsWith(n.href) || (n.href === "/dashboard" && path.startsWith("/studio"));
           return (
             <Link key={n.href} href={n.href} className={`flex flex-col items-center gap-1 py-2.5 text-[10px] font-medium ${on ? "text-white" : "text-ink-400"}`}>
               <n.icon className="h-5 w-5" />{n.label}
