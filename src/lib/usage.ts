@@ -57,6 +57,13 @@ export function logEscalation(e: Omit<EscalationRow, "at">) {
   const all = escRows(); all.push({ at: new Date().toISOString(), ...e }); if (all.length > 500) all.splice(0, all.length - 500);
   save(escFile(), all);
 }
+/** Project deleted: keep the cost rows for billing totals but drop the link to the project. */
+export function anonymizeProject(pid: string) {
+  const all = rows(); let n = 0;
+  for (const r of all) if (r.pid === pid) { delete r.pid; r.step = r.step ? r.step : undefined; n++; }
+  if (n) save(file(), all);
+  return n;
+}
 export function projectTrace(pid: string) { return rows().filter((r) => r.pid === pid); }
 export function usageReport(days = 30) {
   const since = Date.now() - days * 864e5; const all = rows().filter((r) => Date.parse(r.at) >= since);

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { MEDIA_DIR } from "@/lib/db";
+import { MEDIA_DIR, db } from "@/lib/db";
+import { currentUser } from "@/lib/auth";
 import { remoteUrl } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
@@ -8,6 +9,10 @@ const TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg
 
 export async function GET(req: Request, { params }: { params: Promise<{ path: string[] }> }) {
   const rel = (await params).path.join("/");
+  // media is private: the project's owner (or an admin) only
+  const u = await currentUser(); if (!u) return new Response("unauthorized", { status: 401 });
+  const pid = rel.split("/")[0];
+  if (u.role !== "admin") { const p = db.getProject(pid); if (!p || p.ownerId !== u.id) return new Response("forbidden", { status: 403 }); }
   const abs = path.resolve(MEDIA_DIR, rel);
   if (!abs.startsWith(MEDIA_DIR + path.sep) || !fs.existsSync(abs)) return new Response("not found", { status: 404 });
   const stat = fs.statSync(abs);
@@ -22,5 +27,5 @@ export async function GET(req: Request, { params }: { params: Promise<{ path: st
     const stream = fs.createReadStream(abs, { start, end });
     return new Response(stream as unknown as ReadableStream, { status: 206, headers: { "Content-Type": type, "Content-Range": `bytes ${start}-${end}/${stat.size}`, "Accept-Ranges": "bytes", "Content-Length": String(end - start + 1) } });
   }
-  return new Response(fs.readFileSync(abs), { headers: { "Content-Type": type, "Content-Length": String(stat.size), "Accept-Ranges": "bytes", "Cache-Control": "public, max-age=31536000, immutable" } });
+  return new Response(fs.readFileSync(abs), { headers: { "Content-Type": type, "Content-Length": String(stat.size), "Accept-Ranges": "bytes", "Cache-Control": "private, max-age=31536000, immutable" } });
 }

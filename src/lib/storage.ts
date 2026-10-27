@@ -27,18 +27,19 @@ const keyPath = (k: string) => k.split("/").map(enc).join("/");
 function signingKey(secret: string, date: string) { return hm(hm(hm(hm("AWS4" + secret, date), "auto"), "s3"), "aws4_request"); }
 
 /** SigV4 header-signed request to R2. */
-export async function r2Req(c: R2Conf, method: string, key: string, body?: Buffer, type?: string) {
-  const u = new URL(`${c.endpoint}/${c.bucket}/${keyPath(key)}`);
+export async function r2Req(c: R2Conf, method: string, key: string, body?: Buffer, type?: string, query: Record<string, string> = {}) {
+  const u = new URL(`${c.endpoint}/${c.bucket}${key ? "/" + keyPath(key) : ""}`);
+  const qs = Object.entries(query).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${enc(k)}=${enc(v)}`).join("&");
   const now = new Date(); const amz = now.toISOString().replace(/[-:]|\.\d{3}/g, ""); const date = amz.slice(0, 8);
   const ph = h(body || "");
   const headers: Record<string, string> = { host: u.host, "x-amz-content-sha256": ph, "x-amz-date": amz, ...(type ? { "content-type": type } : {}) };
   const names = Object.keys(headers).sort();
-  const creq = [method, u.pathname, "", names.map((n) => `${n}:${headers[n]}\n`).join(""), names.join(";"), ph].join("\n");
+  const creq = [method, u.pathname, qs, names.map((n) => `${n}:${headers[n]}\n`).join(""), names.join(";"), ph].join("\n");
   const scope = `${date}/auto/s3/aws4_request`;
   const sts = ["AWS4-HMAC-SHA256", amz, scope, h(creq)].join("\n");
   const sig = crypto.createHmac("sha256", signingKey(c.secret, date)).update(sts).digest("hex");
   const { host: _host, ...send } = headers; void _host;
-  return fetch(u, { method, body: body ? new Uint8Array(body) : undefined, headers: { ...send, authorization: `AWS4-HMAC-SHA256 Credential=${c.key}/${scope}, SignedHeaders=${names.join(";")}, Signature=${sig}` }, signal: AbortSignal.timeout(30000) });
+  return fetch(qs ? `${u.origin}${u.pathname}?${qs}` : u, { method, body: body ? new Uint8Array(body) : undefined, headers: { ...send, authorization: `AWS4-HMAC-SHA256 Credential=${c.key}/${scope}, SignedHeaders=${names.join(";")}, Signature=${sig}` }, signal: AbortSignal.timeout(30000) });
 }
 /** Presigned GET URL (default 1 hour). */
 export function presign(c: R2Conf, key: string, expires = 3600) {
@@ -78,4 +79,27 @@ export async function testR2(): Promise<{ ok: boolean; message: string }> {
     const del = await r2Req(c, "DELETE", key); if (!del.ok && del.status !== 204) return { ok: false, message: `Uploaded and read OK, but delete failed (${del.status}) — the token needs Object Read & Write.` };
     return { ok: true, message: `Connected to bucket “${c.bucket}”: upload, presigned read and delete all worked.` };
   } catch (e) { return { ok: false, message: "Couldn’t reach R2: " + (e as Error).message }; }
+}
+
+/** Delete every R2 object under a key prefix (e.g. "media/<projectId>/"). Runs whenever R2 keys are configured, even if serving is switched off. */
+export async function r2DeletePrefix(prefix: string): Promise<{ deleted: number; remaining: number; error?: string }> {
+  const c = r2Conf(); if (!c || !prefix || prefix === "/") return { deleted: 0, remaining: 0 };
+  let deleted = 0;
+  try {
+    for (let round = 0; round < 50; round++) {
+      const r = await r2Req(c, "GET", "", undefined, undefined, { "list-type": "2", prefix, "max-keys": "1000" });
+      if (!r.ok) return { deleted, remaining: -1, error: `R2 list ${r.status}` };
+      const keys = [...(await r.text()).matchAll(/<Key>(.*?)<\/Key>/g)].map((m) => m[1].replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'"));
+      if (!keys.length) return { deleted, remaining: 0 };
+      for (const k of keys) { const d = await r2Req(c, "DELETE", k); if (d.ok || d.status === 204 || d.status === 404) { deleted++; uploaded.delete(k); } }
+    }
+    return { deleted, remaining: -1, error: "too many objects" };
+  } catch (e) { return { deleted, remaining: -1, error: (e as Error).message }; }
+}
+/** Count R2 objects under a prefix (verification). */
+export async function r2Count(prefix: string): Promise<number> {
+  const c = r2Conf(); if (!c) return 0;
+  const r = await r2Req(c, "GET", "", undefined, undefined, { "list-type": "2", prefix, "max-keys": "1000" });
+  if (!r.ok) throw new Error(`R2 list ${r.status}`);
+  return [...(await r.text()).matchAll(/<Key>/g)].length;
 }

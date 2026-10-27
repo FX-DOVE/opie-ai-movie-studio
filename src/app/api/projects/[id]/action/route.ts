@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { requireProject } from "@/lib/guard";
 import { startJob, activeJobs } from "@/lib/jobs";
 import { runAction } from "@/lib/actions";
 import "@/lib/recover";
@@ -11,13 +11,15 @@ type Ctx = { params: Promise<{ id: string }> };
 export async function POST(req: Request, { params }: Ctx) {
   const id = (await params).id;
   const b = await req.json().catch(() => ({}));
-  if (!db.getProject(id)) return NextResponse.json({ error: "not found" }, { status: 404 });
+  const g = await requireProject(id); if (g instanceof Response) return g;
+  b._uid = g.user.id; // who acted (used for per-user learning; stripped before dedupe below)
   if (req.headers.get("x-job")) {
     const busyKey = String(b._busy || b.action || "");
     delete b._busy;
-    const dup = activeJobs(id).find((j) => j.action === b.action && j.busyKey === busyKey && JSON.stringify(j.body) === JSON.stringify(b));
+    const { _uid: _u, ...cmp } = b; void _u;
+    const dup = activeJobs(id).find((j) => j.action === b.action && j.busyKey === busyKey && JSON.stringify({ ...j.body, _uid: undefined }) === JSON.stringify({ ...cmp, _uid: undefined }));
     if (dup) return NextResponse.json({ job: dup.id, deduped: true }, { status: 202 });
-    const jid = startJob({ projectId: id, action: String(b.action || ""), busyKey, body: b });
+    const jid = startJob({ projectId: id, ownerId: g.user.id, action: String(b.action || ""), busyKey, body: b });
     return NextResponse.json({ job: jid }, { status: 202 });
   }
   const r = await runAction(id, b);

@@ -1,3 +1,4 @@
+import { voiceFor } from "./voices";
 import fs from "node:fs";
 import path from "node:path";
 import { db, mediaPath, mediaUrl, projectMediaDir } from "./db";
@@ -27,7 +28,7 @@ export async function voiceShot(p: Project, shotId: string) {
   const sh = findShot(p, shotId);
   const text = sh.narration || sh.dialogue;
   if (!text) return null;
-  const voice = sh.narration ? p.narratorVoice : p.assets.find((a) => a.kind === "character" && a.name.toLowerCase() === (sh.speaker || "").toLowerCase())?.voice || "en-US-AriaNeural";
+  const voice = sh.narration ? p.narratorVoice : voiceFor(p, sh.speaker);
   const file = path.join(projectMediaDir(p.id), `voice-${sh.id}-${Date.now()}.mp3`);
   const provider = await speak(text, voice, file);
   const dur = await probeDuration(file);
@@ -84,6 +85,8 @@ export async function queueClips(pid: string, shotIds: string[]) {
   if (!vqRunning) void drain();
   return { queued: shotIds.length, provider: prov?.name };
 }
+/** Drop a deleted project's clips from the queue. */
+export function dropProjectClips(pid: string) { for (let i = vq.length - 1; i >= 0; i--) if (vq[i].pid === pid) vq.splice(i, 1); }
 async function drain() {
   vqRunning = true;
   try {

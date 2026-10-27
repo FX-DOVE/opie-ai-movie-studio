@@ -1,3 +1,4 @@
+import { memoryBrief } from "./memory";
 import { db } from "./db";
 import { maybeAutoResearch } from "./autoresearch";
 import { chatP, chatStream, llmLive, parseJson, type Msg } from "./providers/meta";
@@ -16,7 +17,7 @@ export function systemPrompt(p: Project) {
 ${MODE_BRIEF[p.mode]}
 Project: "${p.title}". Mode: ${MODES[p.mode]}. Platform: ${f.label}, ${p.aspect}, max ${f.maxSec}s. Visual style: ${p.style === "custom" ? p.customStyle : STYLES[p.style]}.
 ${p.idea ? `Current working idea: ${p.idea}\n` : ""}${p.script ? `A script draft exists (${p.script.length} chars) beginning: ${p.script.slice(0, 400)}\n` : ""}${research ? `\nResearch the team gathered (use it, cite the patterns that matter):\n${research}\n` : ""}
-How to answer:
+${memoryBrief(p.ownerId, "brainstorm")}How to answer:
 - Do NOT write screenplay pages here (that happens in the Script tab) — pitch and develop ideas.
 - Talk naturally in markdown: short paragraphs and bullets, concrete and visual, fitted to the platform length.
 - When you pitch ideas (usually 2–3, or 1 when refining), end your reply with ONE fenced block exactly like:

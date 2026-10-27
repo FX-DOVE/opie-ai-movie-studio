@@ -1,3 +1,5 @@
+import { assignVoices, clearLinesFor } from "./voices";
+import { memoryBrief } from "./memory";
 import fs from "node:fs";
 import path from "node:path";
 import { nanoid } from "nanoid";
@@ -8,7 +10,6 @@ import { getConfig, llmLabel } from "./config";
 import { withStep } from "./usage";
 import { characterSheetPrompt, locationSheetPrompt, mockSpec, propSheetPrompt, specLine, specSchema, type CharacterSpec, type LocationSpec, type PropSpec } from "./refsheet";
 import { parseScenes, NARRATOR_RE } from "./screenplay";
-import { EDGE_VOICES } from "./providers/tts";
 import { FORMATS, MODES, STYLES, isApproved, isDraft, type Asset, type ChatMsg, type ImageVersion, type Project, type Scene, type Shot } from "./types";
 
 const now = () => new Date().toISOString();
@@ -17,8 +18,8 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 export function styleText(p: Project) {
   return p.style === "custom" ? p.customStyle || "cinematic" : STYLES[p.style];
 }
-function ctx(p: Project) {
-  return `Mode: ${MODES[p.mode]}. Format: ${FORMATS[p.format].label} (${p.aspect}, max ${FORMATS[p.format].maxSec}s). Visual style: ${styleText(p)}.`;
+function ctx(p: Project, purpose: "director" | "script" = "director") {
+  return `Mode: ${MODES[p.mode]}. Format: ${FORMATS[p.format].label} (${p.aspect}, max ${FORMATS[p.format].maxSec}s). Visual style: ${styleText(p)}.${memoryBrief(p.ownerId, purpose)}`;
 }
 
 // ───────────────────────── Script ─────────────────────────
@@ -119,7 +120,7 @@ FADE OUT.`;
 export async function writeScript(p: Project, instruction: string) {
   const hasScript = p.script.trim().length > 40;
   const { data, source } = await structured<{ title: string; script: string }>(
-    `You are an award-winning screenwriter for an AI movie studio. ${ctx(p)} Write in standard screenplay format: a first line "TITLE: ...", scene headings (INT./EXT. LOCATION - TIME), action lines, CHARACTER names in caps on their own line, optional (parentheticals), dialogue, and transitions like CUT TO:. ${p.mode !== "drama" ? "Use NARRATOR for voiceover lines." : ""} Describe characters vividly on first appearance (age, face, hair, skin tone, wardrobe colours, makeup, accessories) so continuity can be tracked. Keep runtime within the format limit. Return {"title": string, "script": string}.`,
+    `You are an award-winning screenwriter for an AI movie studio. ${ctx(p, "script")} Write in standard screenplay format: a first line "TITLE: ...", scene headings (INT./EXT. LOCATION - TIME), action lines, CHARACTER names in caps on their own line, optional (parentheticals), dialogue, and transitions like CUT TO:. ${p.mode !== "drama" ? "Use NARRATOR for voiceover lines." : ""} Describe characters vividly on first appearance (age, face, hair, skin tone, wardrobe colours, makeup, accessories) so continuity can be tracked. Keep runtime within the format limit. Return {"title": string, "script": string}.`,
     hasScript ? `Current script:\n${p.script}\n\nRevise it according to: ${instruction || "tighten and improve it"}` : `Idea: ${instruction || p.idea}${p.brainstorm.length ? `\n\nBrainstorm notes:\n${p.brainstorm.slice(-6).map((m) => m.content).join("\n")}` : ""}${(p.research || []).length ? `\n\nResearch notes:\n${(p.research || []).slice(-2).map((r) => r.notes.slice(0, 1500)).join("\n---\n")}` : ""}`,
     () => {
       if (hasScript) {
@@ -178,7 +179,7 @@ function mockAssets(p: Project): Omit<Asset, "id" | "images">[] {
 
 export async function extractAssets(p: Project) {
   const { data, source } = await structured<{ assets: Omit<Asset, "id" | "images">[] }>(
-    `You are a film production designer and continuity supervisor. ${ctx(p)} Extract every recurring Character, Location and Prop from the screenplay. For characters, "description" covers face, age, skin tone, hair and build; "details" covers wardrobe colours, makeup/lipstick, watches, jewellery. For locations, "details" is the time of day and lighting. For props, "details" covers material and colour. Return {"assets":[{"kind":"character|location|prop","name","description","details"}]}.`,
+    `You are a film production designer and continuity supervisor. ${ctx(p)} Extract every recurring Character, Location and Prop from the screenplay. For characters, "description" starts with age and gender (e.g. "22-year-old woman") then covers face, skin tone, hair and build; "details" covers wardrobe colours, makeup/lipstick, watches, jewellery. For locations, "details" is the time of day and lighting. For props, "details" covers material and colour. Return {"assets":[{"kind":"character|location|prop","name","description","details"}]}.`,
     p.script,
     () => ({ assets: mockAssets(p) }),
     undefined, "director",
@@ -187,8 +188,10 @@ export async function extractAssets(p: Project) {
     const keep = new Map(x.assets.map((a) => [a.kind + ":" + a.name.toLowerCase(), a]));
     x.assets = data.assets.map((a) => {
       const old = keep.get(a.kind + ":" + a.name.toLowerCase());
-      return old ? { ...old, description: old.description || a.description, details: old.details || a.details } : { ...a, id: nanoid(8), images: [], voice: a.voice || (a.kind === "character" ? EDGE_VOICES[0].id : undefined) };
+      // the model's voice suggestion is ignored: voices come from the bible's gender/age (or the user's own pick)
+      return old ? { ...old, description: old.description || a.description, details: old.details || a.details } : { ...a, id: nanoid(8), images: [], voice: undefined, voiceManual: undefined };
     });
+    clearLinesFor(x, assignVoices(x));
     x.bible = buildBible(x);
   });
   return { source };
@@ -225,7 +228,9 @@ export async function expandSpec(p: Project, assetId: string) {
   return data;
 }
 
-export function sheetPrompt(p: Project, a: Asset, notes = "") {
+export function sheetPrompt(p: Project, a: Asset, extra = "") {
+  const taste = memoryBrief(p.ownerId, "reference", 6).replace(/\n+/g, " ").trim();
+  const notes = [extra, taste].filter(Boolean).join(" ");
   const spec = (a.spec || mockSpec(p, a)) as unknown;
   if (a.kind === "prop") {
     const loc = p.assets.find((x) => x.kind === "location" && (String((spec as PropSpec).context || "").toLowerCase().includes(x.name.toLowerCase().split(/\s+/)[0]))) || p.assets.find((x) => x.kind === "location");
@@ -437,7 +442,7 @@ export async function checkContinuity(p: Project, shotId: string) {
     const shots = allShots(p); const pi = shots.findIndex((s) => s.id === shotId); const prev = pi > 0 ? shots[pi - 1] : undefined;
     const pf = prev ? (prev.endFrame.find((v) => v.id === prev.activeEnd) || prev.startFrame.find((v) => v.id === prev.activeStart)) : undefined;
     const prevRef = pf ? [{ name: "Previous shot (state to carry over)", file: mediaPath(pf.url) }] : [];
-    const v = await visionCheck(mediaPath(frame.url), [...refs.map((r) => ({ ...r, name: `${r.name} reference sheet` })), ...prevRef, ...crops.map((f, i) => ({ name: `Person crop ${i + 1}`, file: f }))], buildBible(p), `${sh.description}${sh.speaker ? ` — ${sh.speaker}: "${sh.dialogue}"` : ""}. Assets that must appear: ${assets.map((a) => a.name).join(", ") || "none listed"}.${prev ? ` Previous shot: ${prev.description}.` : ""}${samNote}`);
+    const v = await visionCheck(mediaPath(frame.url), [...refs.map((r) => ({ ...r, name: `${r.name} reference sheet` })), ...prevRef, ...crops.map((f, i) => ({ name: `Person crop ${i + 1}`, file: f }))], buildBible(p) + memoryBrief(p.ownerId, "continuity", 8), `${sh.description}${sh.speaker ? ` — ${sh.speaker}: "${sh.dialogue}"` : ""}. Assets that must appear: ${assets.map((a) => a.name).join(", ") || "none listed"}.${prev ? ` Previous shot: ${prev.description}.` : ""}${samNote}`);
     for (const f of crops) fs.promises.unlink(f).catch(() => {});
     const issues = [...samIssues, ...(v.issues || [])].slice(0, 6);
     result = { ok: !!v.ok && !issues.length, issues, fix: v.fix_prompt ? String(v.fix_prompt).slice(0, 600) : undefined };

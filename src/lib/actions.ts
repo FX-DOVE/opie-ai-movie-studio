@@ -5,6 +5,10 @@ import * as S from "./studio";
 import * as R from "./render";
 import { WRITING, setRunner } from "./jobs";
 import { enterStep } from "./usage";
+import { assignVoices, clearLinesFor } from "./voices";
+import { castLine, learn } from "./memory";
+import { EDGE_VOICES } from "./providers/tts";
+import type { Project } from "./types";
 // which pipeline step each action belongs to (feeds the “Built with Meta” pipeline view)
 const STEP: Record<string, string> = { useIdea: "idea", writeScript: "screenplay", extractAssets: "bible", autofillAsset: "bible", assetImage: "references", autocreateAssets: "references", buildStoryboard: "shots", frame: "shots", autofillFrames: "shots", clip: "video", clipAll: "video", continuity: "continuity", continuityAll: "continuity", fixContinuity: "fix", expandSpec: "bible", lockAsset: "references", voiceShot: "voice", voiceAll: "voice", render: "export", aiEdit: "export" };
 
@@ -24,8 +28,10 @@ export async function runAction(id: string, b: Record<string, any>): Promise<Act
       case "deleteResearch": await db.update(id, (x) => { x.research = (x.research || []).filter((r) => r.id !== b.researchId); }); break;
       case "writeScript": await db.update(id, (x) => { x.writing = Date.now(); }); WRITING.add(id); try { result = await S.writeScript(p, String(b.prompt || "")); } finally { WRITING.delete(id); await db.update(id, (x) => { x.writing = undefined; }); } break;
       case "extractAssets": result = await S.extractAssets(p); break;
-      case "addAsset": await db.update(id, (x) => { x.assets.push({ id: nanoid(8), kind: b.kind, name: b.name || "New " + b.kind, description: "", details: "", images: [], voice: b.kind === "character" ? "en-US-AriaNeural" : undefined }); x.bible = S.buildBible(x); }); break;
-      case "updateAsset": await db.update(id, (x) => { const a = x.assets.find((y) => y.id === b.assetId); if (a) { for (const k of a.locked ? ["name", "voice"] : ["name", "description", "details", "voice", "activeImage"]) if (k in b.patch) (a as unknown as Record<string, unknown>)[k] = b.patch[k]; if ("activeImage" in b.patch && !a.locked) { a.approved = true; a.refState = undefined; } if (!a.locked && ("description" in b.patch || "details" in b.patch)) a.spec = undefined; } x.bible = S.buildBible(x); }); break;
+      case "addAsset": await db.update(id, (x) => { x.assets.push({ id: nanoid(8), kind: b.kind, name: b.name || "New " + b.kind, description: "", details: "", images: [] }); assignVoices(x); x.bible = S.buildBible(x); }); break;
+      case "updateAsset": await db.update(id, (x) => { const a = x.assets.find((y) => y.id === b.assetId); if (a) { for (const k of a.locked ? ["name", "voice"] : ["name", "description", "details", "voice", "activeImage"]) if (k in b.patch) (a as unknown as Record<string, unknown>)[k] = b.patch[k]; if ("activeImage" in b.patch && !a.locked) { a.approved = true; a.refState = undefined; } if (!a.locked && ("description" in b.patch || "details" in b.patch)) a.spec = undefined;
+          if ("voice" in b.patch) { if (b.patch.voice) a.voiceManual = true; else { a.voiceManual = undefined; a.voice = undefined; } clearLinesFor(x, [a.name]); } }
+        clearLinesFor(x, assignVoices(x)); x.bible = S.buildBible(x); }); break;
       case "deleteAsset": await db.update(id, (x) => { x.assets = x.assets.filter((a) => a.id !== b.assetId); x.scenes.forEach((s) => s.shots.forEach((sh) => (sh.assetIds = sh.assetIds.filter((a) => a !== b.assetId)))); x.bible = S.buildBible(x); }); break;
       case "assetImage": result = await S.assetImage(p, b.assetId, b.prompt || ""); await S.reviewReference(id, b.assetId); break;
       case "expandSpec": result = await S.expandSpec(p, b.assetId); break;
@@ -69,6 +75,7 @@ export async function runAction(id: string, b: Record<string, any>): Promise<Act
       case "addNote": await db.update(id, (x) => { const at = new Date().toISOString(); (x.research ||= []).push({ id: nanoid(8), goal: String(b.goal || "Research"), notes: String(b.note || ""), at, provider: b.provider }); x.brainstorm.push({ role: "assistant", kind: "note", content: `📎 Research notes attached: ${String(b.goal || "Research")}`, at }); }); break;
       default: return J({ error: "unknown action" }, { status: 400 });
     }
+    try { teach(b, p); } catch { /* learning never breaks a step */ }
     return J({ ok: true, result, project: db.getProject(id) });
   } catch (e) {
     console.error(e);
@@ -77,3 +84,30 @@ export async function runAction(id: string, b: Record<string, any>): Promise<Act
 }
 
 setRunner((projectId, body) => runAction(projectId, body));
+
+/** Feed the user's learning memory from what they just did (distilled into taste notes later; nothing raw is stored). */
+function teach(b: Record<string, any>, before: Project) { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const uid = String(b._uid || before.ownerId || ""); if (!uid) return;
+  const after = db.getProject(before.id) || before;
+  const asset = (aid: string) => after.assets.find((a) => a.id === aid) || before.assets.find((a) => a.id === aid);
+  const desc = (a?: { kind: string; description: string; details: string }) => a ? `${a.kind}: ${a.description.slice(0, 220)} | ${a.details.slice(0, 160)}` : "";
+  const L = (kind: string, detail: string) => learn(uid, after, { kind, detail });
+  switch (b.action) {
+    case "useIdea": { const i = b.idea || {}; L("idea_chosen", `${i.logline || ""} Hook: ${i.hook || ""}`); break; }
+    case "writeScript": if (b.prompt) L(before.script ? "script_revision_request" : "script_brief", String(b.prompt)); break;
+    case "approveAsset": { const a = asset(b.assetId); if (a) L(b.approved === false ? "reference_rejected" : "reference_approved", desc(a)); break; }
+    case "assetImage": if (b.prompt) { const a = asset(b.assetId); L("reference_regenerate_notes", `${b.prompt} (on ${a?.kind})`); } break;
+    case "updateAsset": {
+      const a = asset(b.assetId); const pt = b.patch || {};
+      if (a && pt.voice) L("voice_choice", `${castLine(a)} → ${EDGE_VOICES.find((v) => v.id === pt.voice)?.label || pt.voice}`);
+      if (a && ("description" in pt || "details" in pt)) L("bible_edit", `${a.kind} rewritten as: ${desc(a)}`);
+      break;
+    }
+    case "deleteAsset": { const a = before.assets.find((x) => x.id === b.assetId); if (a) L("asset_removed", desc(a)); break; }
+    case "frame": if (b.prompt) L("shot_edit_request", String(b.prompt)); break;
+    case "fixContinuity": { const sh = before.scenes.flatMap((s) => s.shots).find((s) => s.id === b.shotId); if (sh?.continuity?.issues?.length) L("continuity_fix", sh.continuity.issues.join("; ")); break; }
+    case "updateShot": if (b.patch && "durationSec" in b.patch) L("pacing_edit", `set a shot to ${b.patch.durationSec}s`); break;
+    case "aiEdit": L("video_feedback", String(b.prompt || "")); break;
+    case "render": if (before.render.status === "done" || before.editLog.length) L("rerender", `music ${after.music}, subtitles ${after.subtitles ? "on" : "off"}, narrator ${after.narratorVoice}`); break;
+  }
+}

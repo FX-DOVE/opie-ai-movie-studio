@@ -14,7 +14,7 @@ export interface Step { n: number; at: string; action: string; thought?: string;
 export interface Video { title: string; channel: string; views?: string; url: string; thumb?: string; published?: string; length?: string }
 export interface Session {
   inbox?: string[]; redirects?: string[]; control?: boolean; needsUser?: string; manualLog?: string[];
-  id: string; goal: string; task: Task; url?: string; projectId?: string;
+  id: string; goal: string; task: Task; url?: string; projectId?: string; ownerId?: string;
   status: "running" | "paused" | "done" | "error" | "stopped";
   steps: Step[]; notes: string; findings: string[]; trending: Video[]; frames: string[]; transcript?: string;
   mode: "meta-wonder" | "llm-agent" | "scripted" | "manual"; provider: string; error?: string;
@@ -24,8 +24,10 @@ export interface Session {
 const g = globalThis as unknown as { __opieResearch?: Map<string, Session> };
 const sessions = (g.__opieResearch ||= new Map());
 export const getSession = (id: string) => sessions.get(id);
+/** Session visible to this user (owner or admin). */
+export const sessionFor = (id: string, u: { id: string; role: string }) => { const s = sessions.get(id); return s && (u.role === "admin" || s.ownerId === u.id) ? s : undefined; };
 export const allSessions = () => [...sessions.values()];
-export const listSessions = () => [...sessions.values()].sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 20).map(({ id, goal, task, status, startedAt, provider }) => ({ id, goal, task, status, startedAt, provider }));
+export const listSessions = (ownerId?: string) => [...sessions.values()].filter((s) => !ownerId || s.ownerId === ownerId).sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 20).map(({ id, goal, task, status, startedAt, provider }) => ({ id, goal, task, status, startedAt, provider }));
 /** Client-safe view (drops heavy per-step screenshots except the last few). */
 export function viewSession(s: Session, since = 0) { return { ...s, steps: s.steps.filter((x) => x.n > since) }; }
 
@@ -467,10 +469,10 @@ async function scripted(s: Session, page: Page) {
   s.notes = `## Research notes — ${s.goal}\n\n**Demo mode:** a scripted browser collected this data; add an AI key in Admin → AI brain for an agent that reasons over screenshots.\n\n## Top videos\n${s.trending.slice(0, 8).map((v, i) => `${i + 1}. ${v.title} — ${v.channel} (${v.views || "?"})`).join("\n")}\n\n## Title patterns\n- Recurring words: ${freq.map(([w, c]) => `${w}×${c}`).join(", ")}\n- ${caps}/${s.trending.length} use ALL-CAPS words, ${nums} include numbers, ${q} ask a question\n${s.transcript ? `\n## Transcript excerpt (top video)\n${s.transcript.slice(0, 600)}…\n` : ""}`;
 }
 
-export function startResearch(o: { goal: string; task?: Task; url?: string; projectId?: string; maxSteps?: number; auto?: boolean }) {
+export function startResearch(o: { goal: string; task?: Task; url?: string; projectId?: string; maxSteps?: number; auto?: boolean; ownerId?: string }) {
   // Muse Wonder computer use is the default whenever a Meta key is set; otherwise the vision/text agent on OmniRoute/fallback.
   const mode: Session["mode"] = metaLive() ? "meta-wonder" : llmLive() ? "llm-agent" : "scripted";
-  const s: Session = { id: nanoid(10), goal: o.goal, task: o.task || "trending", url: o.url, projectId: o.projectId, status: "running", steps: [], notes: "", findings: [], trending: [], frames: [], mode, provider: llmLive() ? llmLabel() : "demo", maxSteps: Math.min(40, Math.max(3, o.maxSteps || parseInt(getConfig("RESEARCH_MAX_STEPS") || "14"))), startedAt: new Date().toISOString(), auto: o.auto };
+  const s: Session = { id: nanoid(10), goal: o.goal, task: o.task || "trending", url: o.url, projectId: o.projectId, ownerId: o.ownerId || (o.projectId ? db.getProject(o.projectId)?.ownerId : undefined), status: "running", steps: [], notes: "", findings: [], trending: [], frames: [], mode, provider: llmLive() ? llmLabel() : "demo", maxSteps: Math.min(40, Math.max(3, o.maxSteps || parseInt(getConfig("RESEARCH_MAX_STEPS") || "14"))), startedAt: new Date().toISOString(), auto: o.auto };
   sessions.set(s.id, s);
   (async () => {
     if (s.projectId) enterStep(s.projectId, "research");
@@ -505,8 +507,8 @@ export function startResearch(o: { goal: string; task?: Task; url?: string; proj
 }
 
 /** A browser the user drives by hand (sign in once, browse, then ask the agent). */
-export function startManual(url = "https://www.google.com") {
-  const s: Session = { id: nanoid(10), goal: "Manual browsing", task: "custom", status: "paused", steps: [], notes: "", findings: [], trending: [], frames: [], mode: "manual", provider: "you", maxSteps: 0, control: true, startedAt: new Date().toISOString() };
+export function startManual(url = "https://www.google.com", ownerId?: string) {
+  const s: Session = { id: nanoid(10), ownerId, goal: "Manual browsing", task: "custom", status: "paused", steps: [], notes: "", findings: [], trending: [], frames: [], mode: "manual", provider: "you", maxSteps: 0, control: true, startedAt: new Date().toISOString() };
   sessions.set(s.id, s);
   (async () => {
     try {

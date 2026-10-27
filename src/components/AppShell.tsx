@@ -1,14 +1,20 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Clapperboard, Shield, Home } from "lucide-react";
+import { Clapperboard, Shield, Home, Settings } from "lucide-react";
 import { Logo } from "./ui";
 import { useEffect, useState } from "react";
 
-const NAV = [
+const BASE_NAV = [
   { href: "/studio", label: "Projects", icon: Clapperboard },
-  { href: "/admin", label: "Admin", icon: Shield },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
+const ADMIN_NAV = { href: "/admin", label: "Admin", icon: Shield };
+function useNav() {
+  const [admin, setAdmin] = useState(false);
+  useEffect(() => { fetch("/api/auth/me").then((r) => r.json()).then((j) => setAdmin(j.user?.role === "admin")).catch(() => {}); }, []);
+  return admin ? [...BASE_NAV, ADMIN_NAV] : BASE_NAV;
+}
 
 export function StatusPill() {
   const [s, setS] = useState<{ meta: boolean; llm: string } | null>(null);
@@ -24,6 +30,7 @@ export function StatusPill() {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
+  const NAV = useNav();
   return (
     <div className="min-h-dvh md:pl-[76px]">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-[76px] flex-col items-center border-r border-white/[0.06] bg-ink-900/80 backdrop-blur py-4 md:flex">
@@ -39,7 +46,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
       </aside>
-      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-3 border-t border-white/[0.07] bg-ink-900/95 backdrop-blur md:hidden pb-safe">
+      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-flow-col auto-cols-fr border-t border-white/[0.07] bg-ink-900/95 backdrop-blur md:hidden pb-safe">
         {[{ href: "/", label: "Home", icon: Home }, ...NAV].map((n) => {
           const on = n.href === "/" ? path === "/" : path.startsWith(n.href);
           return (

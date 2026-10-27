@@ -7,6 +7,8 @@ import { ArrowLeft, Clapperboard, Film, ScrollText, Scissors, Settings2, Users, 
 import type { Project } from "@/lib/types";
 import { Spinner, useToast, Modal, Segmented } from "../ui";
 import { StatusPill } from "../AppShell";
+import { DeleteProjectDialog } from "../DeleteProject";
+import { Trash2 } from "lucide-react";
 import type { Act } from "./common";
 import { ScriptTab } from "./ScriptTab";
 import { AssetsTab } from "./AssetsTab";
@@ -32,6 +34,7 @@ export function Workspace({ id }: { id: string }) {
   const [busy, setBusy] = useState<Set<string>>(new Set());
   const [voices, setVoices] = useState<{ id: string; label: string }[]>([]);
   const [settings, setSettings] = useState(false);
+  const [delOpen, setDelOpen] = useState(false);
   const [pipe, setPipe] = useState(false);
   const [contrib, setContrib] = useState(false);
   const { toast, node } = useToast();
@@ -168,8 +171,11 @@ export function Workspace({ id }: { id: string }) {
           <div><span className="label">Style</span><Segmented value={p.style} onChange={(v) => patch({ style: v })} options={[{ value: "realistic", label: "Realistic" }, { value: "pixar", label: "Pixar / 3D" }, { value: "cartoon", label: "Cartoon" }, { value: "anime", label: "Anime" }, { value: "custom", label: "Custom" }]} />
             {p.style === "custom" && <input className="input mt-2" defaultValue={p.customStyle} placeholder="Describe your style" onBlur={(e) => patch({ customStyle: e.target.value })} />}</div>
           <div><span className="label">Output</span><Segmented value={p.outputType} onChange={(v) => patch({ outputType: v })} options={[{ value: "image", label: "Image mode" }, { value: "video", label: "Video mode" }]} /></div>
+          <div className="border-t border-white/[0.07] pt-5"><span className="label">Danger zone</span>
+            <button className="btn-outline h-10 border-red-500/30 text-red-300 hover:bg-red-500/10" onClick={() => { setSettings(false); setDelOpen(true); }}><Trash2 className="h-4 w-4" />Delete project…</button></div>
         </div>
       </Modal>
+      <DeleteProjectDialog project={{ id: p.id, title: p.title, rendering: p.render.status === "running" || p.render.status === "queued" || bg.length > 0 }} open={delOpen} onClose={() => setDelOpen(false)} onDeleted={() => { window.location.href = "/studio"; }} />
     </div>
   );
 }

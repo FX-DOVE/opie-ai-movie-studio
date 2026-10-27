@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
-import { getSession, viewSession, control, frame } from "@/lib/research";
+import { sessionFor, viewSession, control, frame } from "@/lib/research";
+import { currentUser } from "@/lib/auth";
+const find = async (id: string) => { const u = await currentUser(); return u ? sessionFor(id, u) : undefined; };
 export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ id: string }> };
 export async function GET(req: Request, { params }: Ctx) {
-  const s = getSession((await params).id);
+  const s = await find((await params).id);
   const since = Number(new URL(req.url).searchParams.get("since") || 0);
   return s ? NextResponse.json(viewSession(s, since)) : NextResponse.json({ error: "not found" }, { status: 404 });
 }
 /** Control: {op:"stop"|"pause"|"resume"} */
 export async function PATCH(req: Request, { params }: Ctx) {
-  const s = getSession((await params).id);
+  const s = await find((await params).id);
   if (!s) return NextResponse.json({ error: "not found" }, { status: 404 });
   const { op } = await req.json().catch(() => ({}));
   if (op === "stop") { s.stop = true; s.pause = false; }
@@ -23,13 +25,13 @@ export async function PATCH(req: Request, { params }: Ctx) {
   return NextResponse.json({ ok: true });
 }
 export async function DELETE(_: Request, ctx: Ctx) {
-  const s = getSession((await ctx.params).id); if (s) s.stop = true;
+  const s = await find((await ctx.params).id); if (s) s.stop = true;
   return NextResponse.json({ ok: true });
 }
 
 /** Live input from the user while in control: {t:"click"|"scroll"|"type"|"key"|"navigate"|"back"|"forward"|"reload"|"frame", ...} */
 export async function POST(req: Request, { params }: Ctx) {
-  const s = getSession((await params).id);
+  const s = await find((await params).id);
   if (!s) return NextResponse.json({ error: "not found" }, { status: 404 });
   const e = await req.json().catch(() => ({}));
   try { return NextResponse.json(e.t === "frame" ? await frame(s) : await control(s, e)); }

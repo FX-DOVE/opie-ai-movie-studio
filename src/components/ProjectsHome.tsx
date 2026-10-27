@@ -6,8 +6,9 @@ import { useEffect, useState } from "react";
 import { Clapperboard, Film, Image as ImageIcon, Megaphone, Plus, Search, Trash2, Video } from "lucide-react";
 import { Modal, Segmented, Spinner, Logo } from "./ui";
 import { StatusPill } from "./AppShell";
+import { DeleteProjectDialog } from "./DeleteProject";
 
-type Row = { id: string; title: string; mode: string; format: string; aspect: string; style: string; outputType: string; cover?: string; updatedAt: string; shots: number; rendered: boolean };
+type Row = { id: string; title: string; mode: string; format: string; aspect: string; style: string; outputType: string; cover?: string; updatedAt: string; shots: number; rendered: boolean; rendering?: boolean; ownerId?: string };
 const MODE_LABEL: Record<string, string> = { drama: "Drama", documentary: "Documentary", ad: "Product Ad" };
 const FORMAT_LABEL: Record<string, string> = { yt_shorts: "YouTube Shorts", tiktok: "TikTok", fb_reels: "Facebook Reels", yt_long: "YouTube Video" };
 const ratio = (a: string) => a.replace(":", "/");
@@ -17,7 +18,8 @@ export function ProjectsHome() {
   const [q, setQ] = useState("");
   const params = useSearchParams();
   const [open, setOpen] = useState(params.get("new") === "1");
-  const load = () => fetch("/api/projects").then((r) => r.json()).then(setRows);
+  const [del, setDel] = useState<Row | null>(null);
+  const load = () => fetch("/api/projects").then((r) => r.json()).then((j) => setRows(Array.isArray(j) ? j : []));
   useEffect(() => { load(); }, []);
   const list = (rows || []).filter((r) => r.title.toLowerCase().includes(q.toLowerCase()));
 
@@ -59,11 +61,12 @@ export function ProjectsHome() {
                 <div className="mt-1 truncate text-xs text-ink-400">{FORMAT_LABEL[r.format]} · {r.style} · {r.shots} shots</div>
               </div>
             </Link>
-            <button aria-label="Delete project" className="absolute right-2 top-2 hidden h-8 w-8 place-items-center rounded-lg bg-black/60 text-white/80 hover:text-red-300 group-hover:grid" onClick={async () => { if (confirm(`Delete “${r.title}”?`)) { await fetch(`/api/projects/${r.id}`, { method: "DELETE" }); load(); } }}><Trash2 className="h-4 w-4" /></button>
+            <button aria-label="Delete project" className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-lg bg-black/60 text-white/80 hover:text-red-300 md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100" onClick={() => setDel(r)}><Trash2 className="h-4 w-4" /></button>
           </div>
         ))}
       </div>
       <NewProject open={open} onClose={() => setOpen(false)} />
+      <DeleteProjectDialog project={del} open={!!del} onClose={() => setDel(null)} onDeleted={() => { setRows((x) => (x || []).filter((y) => y.id !== del?.id)); setDel(null); load(); }} />
     </div>
   );
 }

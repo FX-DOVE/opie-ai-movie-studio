@@ -26,6 +26,7 @@ export const EDGE_VOICES = [
   { id: "en-US-JennyNeural", label: "Jenny · US · friendly" },
   { id: "en-KE-ChilembaNeural", label: "Chilemba · Kenya · male" },
   { id: "en-ZA-LeahNeural", label: "Leah · South Africa · female" },
+  { id: "en-US-AnaNeural", label: "Ana · US · child" },
 ];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

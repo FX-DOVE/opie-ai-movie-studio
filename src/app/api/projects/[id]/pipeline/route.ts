@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { requireProject } from "@/lib/guard";
 import { contributorOn, getConfig, llmChain, providerName, type LlmTask } from "@/lib/config";
 import { endpoint, metaLive } from "@/lib/providers/meta";
 import { samOn } from "@/lib/providers/sam";
@@ -15,8 +15,8 @@ const isMeta = (provider: string, model: string) => provider === "Meta Muse" || 
 
 /** Process view: which model did each step of this project (from the run log), and which will run next (from routing). */
 export async function GET(_: Request, { params }: Ctx) {
-  const p = db.getProject((await params).id);
-  if (!p) return NextResponse.json({ error: "not found" }, { status: 404 });
+  const g = await requireProject((await params).id); if (g instanceof Response) return g;
+  const p = g.p;
   const rows = projectTrace(p.id);
   const plannedLlm = (t: LlmTask, vision = false) => { const w = llmChain(t)[0]; if (!w) return { provider: "Demo", model: "offline planner", meta: false }; const e = endpoint(w, { task: t, vision }); return { provider: providerName(w), model: e.model, meta: isMeta(providerName(w), e.model) }; };
   const img = metaLive() ? { provider: "Meta Muse", model: getConfig("META_IMAGE_MODEL") || "muse-image-1.0", meta: true } : { provider: "Demo", model: "placeholder images (add a Meta key)", meta: false };

@@ -3,6 +3,7 @@ import { recoverJobs } from "./jobs";
 import "./actions"; // registers the job runner
 import * as R from "./render";
 import * as S from "./studio";
+import { assignVoices, clearLinesFor } from "./voices";
 
 type Out = { jobs: { resumed: string[]; interrupted: string[] }; renders: string[]; clips: number; reviews: number };
 const g = globalThis as unknown as { __rfRecovered?: Promise<Out> };
@@ -10,6 +11,11 @@ const g = globalThis as unknown as { __rfRecovered?: Promise<Out> };
 /** Resume everything a restart interrupted: durable action jobs, renders, the video clip queue and automatic reviews. Runs once per process. */
 export function recoverNow(): Promise<Out> {
   return (g.__rfRecovered ??= (async () => {
+    // one-time: character voices now come from the bible's gender/age (earlier projects all defaulted to one voice)
+    if (!db.getSetting("migr_voices_v1")) {
+      for (const p of db.listProjects()) await db.update(p.id, (x) => { clearLinesFor(x, assignVoices(x)); }).catch(() => {});
+      await db.setSetting("migr_voices_v1", new Date().toISOString());
+    }
     const jobs = recoverJobs();
     const renders: string[] = []; let clips = 0, reviews = 0;
     for (const p of db.listProjects()) {

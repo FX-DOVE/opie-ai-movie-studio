@@ -13,6 +13,8 @@ export interface Asset {
   description: string;
   details: string; // clothing/accessories for characters, time of day for locations
   voice?: string; // TTS voice for characters
+  /** true once the user picked a voice by hand (otherwise ReelForge picks one from gender/age in the bible) */
+  voiceManual?: boolean;
   images: ImageVersion[];
   activeImage?: string;
   /** structured reference spec expanded by the Director (exact colours/hex, scale, materials, label text…) */
@@ -64,7 +66,12 @@ export interface ResearchNote { id: string; goal: string; notes: string; at: str
 
 export interface RenderJob { status: "idle" | "queued" | "running" | "done" | "error"; progress: number; message: string; url?: string; updatedAt: string; review?: string; warnings?: string[]; jobId?: string; startedAt?: string; attempts?: number }
 
+export interface MemoryNote { id: string; text: string; category: "genre" | "pacing" | "tone" | "visual" | "characters" | "wardrobe" | "voice" | "rejects" | "other"; at: string; source?: string; hits?: number }
+export interface UserMemory { enabled: boolean; notes: MemoryNote[]; updatedAt?: string }
+
 export interface Project {
+  /** user id of the creator who owns this project ("admin" for legacy projects) */
+  ownerId?: string;
   writing?: number; // set while a script is being written in the background
   id: string;
   title: string;

@@ -10,19 +10,22 @@ import { FORMATS } from "./types";
 
 /** ReelForge assistant: a conversational agent with tool calling over the studio's own actions. */
 type Turn = { role: "user" | "assistant" | "tool"; content: string; at: string; tool?: string; ok?: boolean };
-interface Conv { id: string; projectId?: string; turns: Turn[]; busy: boolean; interrupts: string[]; abort: boolean; researchId?: string; lastIdeas: Idea[]; autoIds?: string[] }
+interface Conv { id: string; ownerId?: string; projectId?: string; turns: Turn[]; busy: boolean; interrupts: string[]; abort: boolean; researchId?: string; lastIdeas: Idea[]; autoIds?: string[] }
 const g = globalThis as unknown as { __opieConvs?: Map<string, Conv> };
 const convs = (g.__opieConvs ||= new Map<string, Conv>());
 export const getConv = (id: string) => convs.get(id);
+export function forgetProjectInConvs(pid: string) { for (const c of convs.values()) if (c.projectId === pid) { c.projectId = undefined; c.abort = true; c.turns = c.turns.filter((t) => t.role === "user").slice(-4); } }
+const owns = (c: Conv, p: Project) => !c.ownerId || c.ownerId === "admin" || p.ownerId === c.ownerId;
 
-const base = () => `http://127.0.0.1:${process.env.PORT || 3000}`;
+// In-process calls (no HTTP loopback): the studio API requires a signed-in session, the agent already runs as one.
 async function act(id: string, body: Record<string, unknown>) {
-  const r = await fetch(`${base()}/api/projects/${id}/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error || `${body.action} failed (${r.status})`);
+  const { runAction } = await import("./actions");
+  const r = await runAction(id, body);
+  const j = (r.body || {}) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+  if (r.status >= 400) throw new Error(j.error || `${body.action} failed (${r.status})`);
   return j;
 }
-const proj = (c: Conv) => { const p = c.projectId && db.getProject(c.projectId); if (!p) throw new Error("No project is open yet — create_project or open_project first."); return p; };
+const proj = (c: Conv) => { const p = c.projectId && db.getProject(c.projectId); if (!p || !owns(c, p)) throw new Error("No project is open yet — create_project or open_project first."); return p; };
 /** Production pipeline used when a weak model under-plans: next missing stage the user asked for. */
 const STAGES: [string, RegExp, (p: Project) => boolean][] = [
   ["write_script", /script|write|all the way|end.to.end|full|complete|render|video|ad\b|make/i, (p) => !!p.script.trim()],
@@ -49,10 +52,10 @@ export function state(p?: Project) {
 type Tool = { desc: string; req?: string[]; run: (c: Conv, a: Record<string, unknown>, emit: (o: unknown) => void) => Promise<string> };
 const shotAt = (p: Project, a: Record<string, unknown>) => { const all = shots(p); const n = Number(a.shot ?? a.index ?? 1); const s = all[Math.max(0, n - 1)]; if (!s) throw new Error(`No shot ${n} (there are ${all.length})`); return s; };
 export const TOOLS: Record<string, Tool> = {
-  list_projects: { desc: "{} — list existing projects", run: async () => db.listProjects().slice(0, 10).map((p) => `${p.id}: ${p.title} (${p.mode}, ${p.format})`).join("\n") || "none" },
-  open_project: { req: ["projectId"], desc: '{"projectId"} — switch to an existing project', run: async (c, a) => { const p = db.getProject(String(a.projectId)); if (!p) throw new Error("not found"); c.projectId = p.id; return state(p); } },
+  list_projects: { desc: "{} — list existing projects", run: async (c) => db.listProjects(c.ownerId === "admin" ? undefined : c.ownerId).slice(0, 10).map((p) => `${p.id}: ${p.title} (${p.mode}, ${p.format})`).join("\n") || "none" },
+  open_project: { req: ["projectId"], desc: '{"projectId"} — switch to an existing project', run: async (c, a) => { const p = db.getProject(String(a.projectId)); if (!p || !owns(c, p)) throw new Error("not found"); c.projectId = p.id; return state(p); } },
   create_project: { req: ["title","mode","format"], desc: '{"title","mode":"drama|documentary|ad","format":"yt_shorts|tiktok|fb_reels|yt_long","aspect":"9:16|16:9|1:1|4:5","style":"realistic|pixar|cartoon|anime","outputType":"image|video","idea"}', run: async (c, a, emit) => {
-    const r = await fetch(`${base()}/api/projects`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(a) }); const p = await r.json(); c.projectId = p.id; emit({ type: "project", id: p.id, title: p.title }); return state(p); } },
+    const { createProject } = await import("./projects"); const p = await createProject(a, c.ownerId || "admin"); c.projectId = p.id; emit({ type: "project", id: p.id, title: p.title }); return state(p); } },
   brainstorm: { req: ["message"], desc: '{"message"} — brainstorm story/ad ideas in the project (returns idea cards)', run: async (c, a) => {
     const p = proj(c); const rd = brainstormStream(p, String(a.message || p.idea || p.title)).getReader(); const dec = new TextDecoder(); let buf = "", done: { message?: { content: string; ideas?: Idea[] } } = {};
     for (;;) { const { value, done: d } = await rd.read(); if (d) break; buf += dec.decode(value); }
@@ -77,7 +80,7 @@ export const TOOLS: Record<string, Tool> = {
   edit_video: { req: ["prompt"], desc: '{"prompt"} — apply an edit command (music, subtitles, pacing, voice…)', run: async (c, a) => { const p = proj(c); const r = await act(p.id, { action: "aiEdit", prompt: String(a.prompt || "") }); return JSON.stringify(r.result ?? r).slice(0, 500); } },
   research: { req: ["task","goal"], desc: '{"task":"trending|analyse|watch|custom","goal","url"?,"maxSteps":8} — run the virtual-desktop browser agent (YouTube research, watching videos); notes are saved to the open project', run: async (c, a, emit) => {
     const task = (["trending", "analyse", "watch", "custom"].includes(String(a.task)) ? a.task : "custom") as Task;
-    const s = startResearch({ goal: String(a.goal || a.url || "research"), task, url: a.url ? String(a.url) : undefined, projectId: c.projectId, maxSteps: Number(a.maxSteps) || 8 });
+    const s = startResearch({ goal: String(a.goal || a.url || "research"), task, url: a.url ? String(a.url) : undefined, projectId: c.projectId, maxSteps: Number(a.maxSteps) || 8, ownerId: c.ownerId });
     c.researchId = s.id; emit({ type: "session", id: s.id }); let seen = 0;
     while (s.status === "running" || s.status === "paused") {
       await new Promise((r) => setTimeout(r, 1500));
@@ -115,10 +118,12 @@ export function interrupt(c: Conv, msg: string) {
   return "Noted — I'll factor that in after the current step.";
 }
 
-export function agentStream(o: { convId?: string; message: string; projectId?: string; autoResearch?: boolean }): { conv: Conv; stream: ReadableStream<Uint8Array> } {
+export function agentStream(o: { convId?: string; message: string; projectId?: string; autoResearch?: boolean; ownerId?: string }): { conv: Conv; stream: ReadableStream<Uint8Array> } {
   let c = o.convId ? convs.get(o.convId) : undefined;
-  if (!c) { c = { id: o.convId || nanoid(10), turns: [], busy: false, interrupts: [], abort: false, lastIdeas: [] }; convs.set(c.id, c); }
-  if (o.projectId && db.getProject(o.projectId)) c.projectId = o.projectId;
+  if (c && o.ownerId && c.ownerId && c.ownerId !== o.ownerId && o.ownerId !== "admin") c = undefined; // never resume someone else's conversation
+  if (!c) { c = { id: o.convId && !convs.has(o.convId) ? o.convId : nanoid(10), ownerId: o.ownerId, turns: [], busy: false, interrupts: [], abort: false, lastIdeas: [] }; convs.set(c.id, c); }
+  const op = o.projectId ? db.getProject(o.projectId) : undefined;
+  if (op && owns(c, op)) c.projectId = op.id;
   const conv = c; const enc = new TextEncoder();
   const now = () => new Date().toISOString();
   if (conv.busy) {
@@ -135,7 +140,7 @@ export function agentStream(o: { convId?: string; message: string; projectId?: s
       const emit = (x: unknown) => { try { ctrl.enqueue(enc.encode(JSON.stringify(x) + "\n")); } catch { /* client gone */ } };
       emit({ type: "conv", id: conv.id, projectId: conv.projectId });
       const pj = conv.projectId ? db.getProject(conv.projectId) : undefined;
-      const auto = (o.autoResearch ? maybeAutoResearch({ message: o.message, projectId: conv.projectId, scope: conv.projectId ? "p:" + conv.projectId : "c:" + conv.id, context: pj ? `${pj.mode} · ${pj.title}` : "" }).then((r) => { if (r) { (conv.autoIds ||= []).push(r.id); emit({ type: "research", ...r }); } return r; }) : Promise.resolve(null)).catch(() => null);
+      const auto = (o.autoResearch ? maybeAutoResearch({ message: o.message, ownerId: conv.ownerId, projectId: conv.projectId, scope: conv.projectId ? "p:" + conv.projectId : "c:" + conv.id, context: pj ? `${pj.mode} · ${pj.title}` : "" }).then((r) => { if (r) { (conv.autoIds ||= []).push(r.id); emit({ type: "research", ...r }); } return r; }) : Promise.resolve(null)).catch(() => null);
       try {
         if (!llmLive()) { const t = "I'm in demo mode — add a Meta key (or an OpenAI-compatible fallback like xAI) in Admin → AI brain and I'll be able to plan and run studio tasks for you."; emit({ type: "delta", text: t }); conv.turns.push({ role: "assistant", content: t, at: now() }); return; }
         const hist = (): Msg[] => conv.turns.slice(-24).map((t: Turn): Msg => t.role === "tool" ? { role: "user", content: `TOOL RESULT ${t.tool} (${t.ok ? "ok" : "error"}):\n${t.content}` } : { role: t.role, content: t.content });

@@ -28,7 +28,7 @@ export async function detectTopic(message: string, context = ""): Promise<string
 export const autoResearchOn = () => (getConfig("AUTO_RESEARCH") || "on") !== "off";
 
 /** Starts (at most once per topic per project/chat) and returns the session id, or null. */
-export async function maybeAutoResearch(o: { message: string; projectId?: string; scope: string; context?: string }): Promise<{ id: string; topic: string } | null> {
+export async function maybeAutoResearch(o: { message: string; projectId?: string; scope: string; context?: string; ownerId?: string }): Promise<{ id: string; topic: string } | null> {
   if (!autoResearchOn()) return null;
   const topic = await detectTopic(o.message, o.context); if (!topic) return null;
   const k = `${o.scope}|${norm(topic)}`; if (!norm(topic)) return null;
@@ -37,7 +37,7 @@ export async function maybeAutoResearch(o: { message: string; projectId?: string
   if (allSessions().some((s) => s.auto && s.status === "running" && (s.projectId || "") === (o.projectId || ""))) return null;
   const p = o.projectId ? db.getProject(o.projectId) : undefined;
   if (p?.research?.some((r) => norm(r.goal) === norm(topic))) return null;
-  const s = startResearch({ goal: topic, task: "topic", projectId: o.projectId, auto: true, maxSteps: 12 });
+  const s = startResearch({ goal: topic, task: "topic", projectId: o.projectId, auto: true, maxSteps: 12, ownerId: o.ownerId });
   seen.set(k, { id: s.id, at: Date.now() });
   return { id: s.id, topic };
 }

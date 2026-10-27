@@ -12,7 +12,7 @@ import { DATA_DIR } from "./db";
  */
 export type JobState = "running" | "done" | "error" | "interrupted";
 export type Job = {
-  id: string; kind: "action" | "stream"; projectId?: string; action?: string; busyKey?: string; label?: string;
+  id: string; kind: "action" | "stream"; projectId?: string; ownerId?: string; action?: string; busyKey?: string; label?: string;
   body?: Record<string, unknown>; state: JobState; done: boolean; status: number; result?: unknown; error?: string;
   events: unknown[]; t: number; startedAt: number; attempts: number;
 };
@@ -55,6 +55,7 @@ export const recentJobs = (projectId: string, n = 20) => { loadOnce(); return [.
 export const setRunner = (r: Runner) => { g.__jobRunner = r; };
 
 function finish(job: Job, status: number, body: unknown) {
+  if (!J.has(job.id)) return; // project deleted while running
   job.status = status; job.result = body; job.done = true; job.t = Date.now();
   job.state = status < 400 ? "done" : "error";
   if (status >= 400) job.error = String((body as { error?: string })?.error || "Job failed");
@@ -70,9 +71,9 @@ function execute(job: Job) {
 }
 
 /** Start a durable action job; returns its id immediately. The work runs in this server process, not in the request. */
-export function startJob(o: { projectId: string; action: string; busyKey?: string; body: Record<string, unknown>; label?: string }): string {
+export function startJob(o: { projectId: string; ownerId?: string; action: string; busyKey?: string; body: Record<string, unknown>; label?: string }): string {
   loadOnce(); gc();
-  const job: Job = { id: nanoid(10), kind: "action", projectId: o.projectId, action: o.action, busyKey: o.busyKey || o.action, label: o.label, body: o.body, state: "running", done: false, status: 202, events: [], t: Date.now(), startedAt: Date.now(), attempts: 0 };
+  const job: Job = { id: nanoid(10), kind: "action", projectId: o.projectId, ownerId: o.ownerId, action: o.action, busyKey: o.busyKey || o.action, label: o.label, body: o.body, state: "running", done: false, status: 202, events: [], t: Date.now(), startedAt: Date.now(), attempts: 0 };
   J.set(job.id, job);
   execute(job);
   return job.id;
@@ -101,7 +102,7 @@ export function recoverJobs(): { resumed: string[]; interrupted: string[] } {
 }
 
 /** Tee an NDJSON stream into a durable job buffer (read in the background, independent of the client) and return a client stream with a job header + heartbeats. */
-export function streamJob(src: ReadableStream<Uint8Array>, meta: { projectId?: string; action?: string; label?: string } = {}): Response {
+export function streamJob(src: ReadableStream<Uint8Array>, meta: { projectId?: string; ownerId?: string; action?: string; label?: string } = {}): Response {
   loadOnce(); gc();
   const job: Job = { id: nanoid(10), kind: "stream", ...meta, state: "running", done: false, status: 200, events: [], t: Date.now(), startedAt: Date.now(), attempts: 1 };
   J.set(job.id, job); save();
@@ -113,6 +114,7 @@ export function streamJob(src: ReadableStream<Uint8Array>, meta: { projectId?: s
       for (;;) {
         const { value, done } = await rd.read(); if (done) break;
         buf += dec.decode(value, { stream: true }); let i;
+        if (!J.has(job.id)) { try { await rd.cancel(); } catch { /* */ } break; } // project deleted
         while ((i = buf.indexOf("\n")) >= 0) { const line = buf.slice(0, i); buf = buf.slice(i + 1); if (!line.trim()) continue; try { job.events.push(JSON.parse(line)); } catch { /* */ } job.t = Date.now(); save(); h.push?.(line); }
       }
       job.state = "done";
@@ -133,6 +135,14 @@ export function streamJob(src: ReadableStream<Uint8Array>, meta: { projectId?: s
     cancel() { h.push = undefined; }, // client went away — the job keeps running
   });
   return new Response(out, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" } });
+}
+
+/** Project deleted: stop tracking its jobs (running ones are told to stop and their results are dropped) and erase every record. */
+export function purgeProjectJobs(projectId: string): number {
+  loadOnce(); let n = 0;
+  for (const [k, j] of J) if (j.projectId === projectId) { J.delete(k); n++; }
+  save(true);
+  return n;
 }
 
 /** Project ids with a script being written in THIS server process (a stale `writing` flag after a restart is ignored). */

@@ -100,7 +100,7 @@ export function AssetsTab(props: TabProps & { next: () => void }) {
 }
 
 function AssetEditor({ a, p, act, busy, setP, toast, voices, onDeleted }: TabProps & { a: Asset; onDeleted: () => void }) {
-  const [f, setF] = useState({ name: a.name, description: a.description, details: a.details, voice: a.voice || "" });
+  const [f, setF] = useState({ name: a.name, description: a.description, details: a.details, voice: a.voiceManual ? a.voice || "" : "" });
   const [change, setChange] = useState("");
   const img = active(a.images, a.activeImage);
   const key = "img-" + a.id;
@@ -164,8 +164,10 @@ function AssetEditor({ a, p, act, busy, setP, toast, voices, onDeleted }: TabPro
         {a.kind === "character" && (
           <div><span className="label">Voice</span>
             <select className="input h-10" value={f.voice} onChange={(e) => { setF({ ...f, voice: e.target.value }); save({ voice: e.target.value }); }}>
+              <option value="">Auto from bible — {voices.find((v) => v.id === (a.voiceManual ? "" : a.voice))?.label || a.voice || "picked from gender & age"}</option>
               {voices.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
             </select>
+            <p className="mt-1 text-[11px] text-ink-400">{f.voice ? "Your pick — used for every line this character speaks." : "ReelForge picks the voice from the gender and age in the description. Choose one to override."}</p>
           </div>
         )}
         <div className="flex flex-wrap gap-2">

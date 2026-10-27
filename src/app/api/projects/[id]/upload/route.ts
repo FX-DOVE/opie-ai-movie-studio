@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { nanoid } from "nanoid";
 import { db, mediaUrl, projectMediaDir } from "@/lib/db";
+import { requireProject } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ id: string }> };
@@ -11,8 +12,7 @@ const IMG = /^image\/(png|jpe?g|webp)$/;
 /** Upload your own character/location/prop reference (Flow can't), or a script file (.txt/.fountain/.md). */
 export async function POST(req: Request, { params }: Ctx) {
   const id = (await params).id;
-  const p = db.getProject(id);
-  if (!p) return NextResponse.json({ error: "not found" }, { status: 404 });
+  const g = await requireProject(id); if (g instanceof Response) return g;
   const fd = await req.formData();
   const file = fd.get("file") as File | null;
   if (!file) return NextResponse.json({ error: "no file" }, { status: 400 });
