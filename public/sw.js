@@ -5,6 +5,8 @@ self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener("fetch", (e) => {
   const r = e.request;
+  // never touch navigations (a followed redirect served for a navigation is a network error) or non-tunnel hosts
+  if (r.mode === "navigate" || !self.location.hostname.includes("pinggy")) return;
   if (r.method !== "GET" || new URL(r.url).origin !== self.location.origin) return;
   const h = new Headers(r.headers); h.set("X-Pinggy-No-Screen", "1");
   e.respondWith(fetch(r.url, { method: "GET", headers: h, credentials: "include", cache: r.cache === "only-if-cached" ? "default" : r.cache, redirect: "follow", signal: r.signal }).catch(() => fetch(r)));

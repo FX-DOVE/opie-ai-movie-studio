@@ -18,13 +18,14 @@ export const metadata: Metadata = {
 export const viewport: Viewport = { themeColor: "#0a0a0b", width: "device-width", initialScale: 1, maximumScale: 1, interactiveWidget: "resizes-content", viewportFit: "cover" };
 
 // Runs before any app code: tag same-origin fetch/XHR so the tunnel never swaps a response for its HTML warning
-// page, and install the service worker that does the same for scripts, images and navigations.
+// page, and (on tunnel hosts only) install the service worker that does the same for scripts and images. On the real domain any old
+// worker is removed: it re-fetched navigations with redirect:"follow", which browsers reject for the sign-in redirects.
 const TUNNEL = `(function(){try{var H="X-Pinggy-No-Screen",o=location.origin,f=window.fetch;
 window.fetch=function(i,n){try{var u=typeof i==="string"?i:i instanceof URL?i.href:i.url;var U=new URL(u,location.href);if(U.origin===o){n=Object.assign({},n||{});var h=new Headers(n.headers||(i instanceof Request?i.headers:undefined));h.set(H,"1");n.headers=h;var P=U.pathname,api=P.indexOf("/api/")===0&&P.indexOf("/api/auth")!==0&&P.indexOf("/api/admin")!==0&&P.indexOf("/api/status")!==0}}catch(e){}
 return f.call(this,i,n).then(function(r){try{if(api&&r.status===401&&location.pathname.indexOf("/login")!==0&&location.pathname.indexOf("/admin")!==0&&["/","/pricing","/about","/faq","/signup"].indexOf(location.pathname)<0){location.href="/login?next="+encodeURIComponent(location.pathname+location.search)}}catch(e){}return r})};
 var op=XMLHttpRequest.prototype.open,sd=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.open=function(m,u){this.__rf=new URL(u,location.href).origin===o;return op.apply(this,arguments)};
 XMLHttpRequest.prototype.send=function(){try{if(this.__rf)this.setRequestHeader(H,"1")}catch(e){}return sd.apply(this,arguments)};
-if("serviceWorker"in navigator&&location.protocol==="https:")navigator.serviceWorker.register("/sw.js").catch(function(){})}catch(e){}})();`;
+if("serviceWorker"in navigator&&location.protocol==="https:"){if(location.hostname.indexOf("pinggy")>=0)navigator.serviceWorker.register("/sw.js").catch(function(){});else navigator.serviceWorker.getRegistrations().then(function(rs){rs.forEach(function(r){r.unregister()})}).catch(function(){})}}catch(e){}})();`;
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // the agent, its desktop (and their polling / WebSocket) exist only for signed-in users; the public site loads none of it
