@@ -4,7 +4,7 @@ import { getConfig } from "@/lib/config";
 import { hit, ipOf, limited } from "@/lib/ratelimit";
 export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
-  if ((getConfig("SIGNUPS") || process.env.SIGNUPS || "open") === "closed") return NextResponse.json({ error: "Sign-ups are closed right now." }, { status: 403 });
+  if ((getConfig("SIGNUPS") || process.env.SIGNUPS || "closed") !== "open") return NextResponse.json({ error: "Sign-ups are closed right now." }, { status: 403 });
   const k = "signup:" + ipOf(req);
   if (limited(k, 5, 60 * 60_000)) return NextResponse.json({ error: "Too many sign-ups from this network. Try again later." }, { status: 429 });
   const { email, password, name } = await req.json().catch(() => ({}));
