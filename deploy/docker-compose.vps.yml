@@ -22,6 +22,23 @@ services:
     restart: unless-stopped
     mem_limit: 700m
     cpus: 0.9
+  # HyperFrames (Apache-2.0) shot animator; copy services/hyperframes to ./hf. App falls back to FFmpeg if down.
+  hf:
+    build: ./hf
+    init: true
+    restart: unless-stopped
+    mem_limit: 1200m
+    cpus: 0.8
+    cpu_shares: 256
+    environment:
+      - DATA_DIR=/data
+      - HYPERFRAMES_SKIP_SKILLS=1
+      - DO_NOT_TRACK=1
+    volumes:
+      - app-data:/data
+    expose:
+      - "8100"
+
 volumes:
   app-data:
   desk-home:
