@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import path from "node:path";
 import { getConfig } from "./config";
 import { ffmpeg, probeDuration } from "./ffmpeg";
 import { record } from "./usage";
@@ -98,21 +97,20 @@ export function wer(ref: string, hyp: string) {
   return +(d[r.length][h.length] / r.length).toFixed(3);
 }
 
-const sttKey = () => getConfig("XAI_API_KEY") || (/x\.ai/.test(getConfig("FALLBACK_BASE_URL") || "") ? getConfig("FALLBACK_API_KEY") : undefined);
-export const sttOn = () => (getConfig("DIALOGUE_CHECK") || "on") !== "off" && !!sttKey();
+export const sttOn = () => (getConfig("DIALOGUE_CHECK") || "on") !== "off";
 
-/** Speech-to-text (xAI batch STT). Names in the line are passed as key terms so they aren't counted as errors unfairly. */
-export async function transcribe(file: string, keyterms: string[] = []): Promise<string> {
-  const key = sttKey(); if (!key) throw new Error("no speech-to-text key");
-  const fd = new FormData();
-  fd.append("model", "grok-voice-transcribe-2.0"); fd.append("language", "en");
-  for (const k of keyterms.slice(0, 20)) fd.append("keyterm", k.slice(0, 50));
-  fd.append("file", new Blob([fs.readFileSync(file)], { type: "audio/mpeg" }), path.basename(file));
-  const r = await fetch("https://api.x.ai/v1/stt", { method: "POST", headers: { Authorization: `Bearer ${key}` }, body: fd, signal: AbortSignal.timeout(45_000) });
-  if (!r.ok) throw new Error(`STT HTTP ${r.status}: ${(await r.text()).slice(0, 160)}`);
-  const j = await r.json() as { text?: string; duration?: number };
-  record("voice", "Speech-to-text", "grok-voice-transcribe-2.0", undefined, 0, ((j.duration || 0) / 3600) * 0.1);
-  return String(j.text || "");
+/** Speech-to-text with Meta wav2vec2 (facebook/wav2vec2-base-960h) in the self-hosted voice service. */
+export async function transcribe(file: string, _keyterms: string[] = []): Promise<string> {
+  const wav = file + ".stt.wav";
+  await ffmpeg(["-i", file, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav]);
+  try {
+    const base = getConfig("MMS_TTS_URL") || "http://tts:8000";
+    const r = await fetch(base + "/stt", { method: "POST", headers: { "Content-Type": "audio/wav" }, body: fs.readFileSync(wav), signal: AbortSignal.timeout(90_000) });
+    if (!r.ok) throw new Error(`STT HTTP ${r.status}`);
+    const j = await r.json() as { text?: string };
+    record("voice", "Speech-to-text", "Meta wav2vec2-base-960h", undefined, 0, 0);
+    return String(j.text || "");
+  } finally { fs.rmSync(wav, { force: true }); }
 }
 
 /** Make a line easier for TTS: numbers spelled, symbols spoken, ellipses/dashes as commas. */

@@ -7,7 +7,7 @@ import { record } from "../usage";
 import { ffmpeg, probeDuration } from "../ffmpeg";
 
 /**
- * Pluggable text-to-speech. Default: Microsoft Edge neural voices (free). ElevenLabs / xAI / OpenAI-compatible slots are configured in Admin.
+ * Pluggable text-to-speech. Default: Meta MMS-TTS (self-hosted). Edge/ ElevenLabs / xAI / OpenAI-compatible slots are configured in Admin.
  *
  * Robustness: every line is split into short sentence chunks, each chunk is synthesized with a hard timeout and up to
  * 3 attempts (fresh connection, backoff), chunks are concatenated with ffmpeg, and if the primary engine still fails we
@@ -104,17 +104,48 @@ function configured(): TTSProvider[] {
   return out;
 }
 
+/**
+ * Meta MMS-TTS (facebook/mms-tts-eng, VITS), self-hosted in the `tts` container. MMS has one voice per language, so each
+ * character "voice" id becomes a deterministic pitch/tempo shift by gender/age (female higher, male lower, child highest)
+ * plus a small per-id offset, then loudness-normalised.
+ */
+export const MMS_URL = () => getConfig("MMS_TTS_URL") || "http://tts:8000";
+const FEMALE = /Aria|Sonia|Ezinne|Jenny|Leah|Ana|female/i;
+export function mmsShape(voice: string) {
+  let h = 0; for (const c of voice || "x") h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const j = ((h % 7) - 3) * 0.012; // ±3.6 % per-character offset
+  const child = /Ana|child/i.test(voice), female = FEMALE.test(voice);
+  const pitch = (child ? 1.32 : female ? 1.16 : /Andrew|Ryan|narrat/i.test(voice) ? 0.93 : 0.86) + j;
+  const tempo = (child ? 1.04 : 1.0) + j / 2;
+  return { pitch: +pitch.toFixed(3), tempo: +tempo.toFixed(3) };
+}
+const mms: TTSProvider = {
+  id: "meta-mms",
+  async synth(text, voice, outFile) {
+    const r = await fetchT(MMS_URL() + "/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, lang: getConfig("MMS_LANG") || "eng" }) }, 90_000);
+    if (!r.ok) throw new Error("MMS TTS " + r.status);
+    const wav = outFile + ".mms.wav"; fs.writeFileSync(wav, Buffer.from(await r.arrayBuffer()));
+    const { pitch, tempo } = mmsShape(voice); const sr = 16000;
+    // asetrate shifts pitch+speed; atempo restores the speed (and applies the character tempo).
+    const af = `asetrate=${Math.round(sr * pitch)},aresample=24000,atempo=${(tempo / pitch).toFixed(4)},highpass=f=70,loudnorm=I=-16:TP=-1.5:LRA=11`;
+    try { await ffmpeg(["-i", wav, "-af", af, "-ac", "1", "-c:a", "libmp3lame", "-b:a", "64k", outFile]); } finally { fs.rmSync(wav, { force: true }); }
+  },
+};
+
+/** Hackathon rule: every runtime AI model must be Meta's. Third-party voices stay behind THIRD_PARTY_TTS=on (off by default). */
+const thirdPartyOn = () => getConfig("THIRD_PARTY_TTS") === "on";
 export function ttsProvider(): TTSProvider {
-  const p = getConfig("TTS_PROVIDER") || "edge";
-  return configured().find((x) => x.id === p) || edge;
+  const p = getConfig("TTS_PROVIDER") || "meta-mms";
+  return (thirdPartyOn() && [edge, ...configured()].find((x) => x.id === p)) || mms;
 }
 
-/** Order to try: the chosen engine, then Edge, then any other configured engine, then offline espeak. */
+/** Order: Meta MMS, (third-party only if explicitly enabled), then espeak-ng — an offline system voice, not an AI model. */
 export function ttsChain(): TTSProvider[] {
   const seen = new Set<string>(); const out: TTSProvider[] = [];
-  for (const x of [ttsProvider(), edge, ...configured(), espeak]) if (!seen.has(x.id)) { seen.add(x.id); out.push(x); }
+  for (const x of [ttsProvider(), mms, ...(thirdPartyOn() ? [edge, ...configured()] : []), espeak]) if (!seen.has(x.id)) { seen.add(x.id); out.push(x); }
   return out;
 }
+export const TTS_LABEL: Record<string, string> = { "meta-mms": "Meta MMS-TTS", espeak: "espeak-ng (system voice, not AI)" };
 
 /** Split into sentence-sized chunks (≤ max chars) so one dropped socket only costs a short retry. */
 export function chunkText(text: string, max = 220): string[] {
@@ -177,7 +208,7 @@ export async function speak(text: string, voice: string, outFile: string): Promi
         try { await ffmpeg(["-f", "concat", "-safe", "0", "-i", list, "-ar", "24000", "-ac", "1", "-c:a", "libmp3lame", "-b:a", "64k", outFile]); }
         finally { fs.rmSync(list, { force: true }); }
       }
-      record("voice", "Voice", p.id, undefined, 0);
+      record("voice", "Voice", TTS_LABEL[p.id] || p.id, undefined, 0);
       return p === ttsChain()[0] ? p.id : `${p.id} (fallback)`;
     } catch (e) {
       errors.push(`${p.id}: ${(e as Error).message.slice(0, 160)}`);

@@ -4,7 +4,7 @@ import { ArrowDown, ArrowUp, BookOpen, Film, KeyRound, Plus, Save, Trash2 } from
 import { Spinner } from "./ui";
 
 type VType = "openai" | "ltx" | "ltx-comfy" | "minimax" | "veo" | "fal" | "replicate" | "mock";
-type Prov = { id: string; name: string; type: VType; enabled: boolean; baseUrl: string; model: string; maxDuration: number; aspects: string[]; firstLast: boolean; i2v: boolean; costPerSec?: number; mapping?: string; workflow?: string; resolution?: string; key?: string };
+type Prov = { id: string; name: string; type: VType; enabled: boolean; baseUrl: string; model: string; maxDuration: number; aspects: string[]; firstLast: boolean; i2v: boolean; costPerSec?: number; blocked?: string; mapping?: string; workflow?: string; resolution?: string; key?: string };
 const TYPE_LABEL: Record<VType, string> = { openai: "Generic OpenAI-compatible", ltx: "LTX-Video 2.x API server", "ltx-comfy": "LTX-Video via ComfyUI", minimax: "MiniMax Hailuo", veo: "Google Veo", fal: "fal.ai", replicate: "Replicate", mock: "Demo motion (local)" };
 const ASPECTS = ["16:9", "9:16", "1:1", "4:5"];
 
@@ -39,13 +39,14 @@ export function VideoProvidersAdmin({ toast }: { toast: (m: string, err?: boolea
         <a href="/docs/ltx" target="_blank" className="btn-ghost h-8 text-xs"><BookOpen className="h-3.5 w-3.5" />Host LTX on a GPU</a>
         <button className="btn-primary ml-auto" disabled={!dirty || busy} onClick={save}>{busy ? <Spinner /> : <Save className="h-4 w-4" />}Save</button></div>
       <p className="mb-4 text-xs text-ink-400">Order = fallback order. Each project in Video mode picks one (or “Auto”); if it fails after the retries, the next enabled provider runs, and Demo motion is the last resort. Image mode never calls a video API. Save before testing.</p>
+      {list.some((p) => p.blocked) && <p className="mb-4 rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">Third-party video models are disabled under the hackathon rules (Meta models only). Shots are animated locally with FFmpeg — Ken Burns, parallax and crossfades over Muse Image stills. Settings are kept; turn off “Meta models only” in Hackathon rules to use them.</p>}
       <div className="space-y-3">
         {list.map((p, i) => (
           <div key={p.id + i} className={`rounded-xl border p-3 sm:p-4 ${p.enabled ? "border-white/10" : "border-white/5 opacity-60"}`}>
             <div className="flex flex-wrap items-center gap-2">
               <span className="badge bg-white/10 text-ink-300">{i + 1}</span>
               <input className="input h-9 min-w-0 flex-1 sm:max-w-xs" value={p.name} onChange={(e) => upd(i, { name: e.target.value })} />
-              <span className="text-xs text-ink-400">{TYPE_LABEL[p.type]}</span>
+              <span className="text-xs text-ink-400">{TYPE_LABEL[p.type]}</span>{p.blocked && <span className="text-[11px] text-amber-300">Disabled — hackathon rules</span>}
               <label className="ml-auto flex items-center gap-1.5 text-xs"><input type="checkbox" checked={p.enabled} onChange={(e) => upd(i, { enabled: e.target.checked })} />Enabled</label>
               <button className="btn-ghost h-8 px-2" disabled={i === 0} onClick={() => move(i, -1)} title="Earlier in fallback order"><ArrowUp className="h-3.5 w-3.5" /></button>
               <button className="btn-ghost h-8 px-2" disabled={i === list.length - 1} onClick={() => move(i, 1)} title="Later in fallback order"><ArrowDown className="h-3.5 w-3.5" /></button>

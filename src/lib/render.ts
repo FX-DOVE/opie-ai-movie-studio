@@ -59,7 +59,7 @@ export async function clarityShot(pid: string, shotId: string) {
     if (sttOn()) {
       try {
         const names = [sh.speaker, ...p.assets.filter((a) => a.kind === "character").map((a) => a.name)].filter(Boolean) as string[];
-        heard = await transcribe(file, names); werV = wer(text, heard); source = "xAI speech-to-text";
+        heard = await transcribe(file, names); werV = wer(text, heard); source = "Meta wav2vec2 speech-to-text";
         if (werV > MAX_WER) issues.push(`unclear (WER ${(werV * 100).toFixed(0)}%: heard "${heard.slice(0, 80)}")`);
       } catch (e) { source = `pace only (STT: ${(e as Error).message.slice(0, 60)})`; }
     }

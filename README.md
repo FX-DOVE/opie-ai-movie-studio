@@ -48,7 +48,7 @@ Next.js 15 (App Router, standalone) ─ Tailwind v4 ─ lucide-react
 | Image generation and editing | Reference sheets, storyboard start/end frames (conditioned on the references and the previous frame), one-click continuity fixes |
 | Agentic computer use (Responses API) | The research desktop driving a real Chromium |
 
-All model calls go through one server-side adapter (`src/lib/providers/meta.ts`). When no Meta key is set, the same chain falls back to any OpenAI-compatible endpoint (including a local llama.cpp server) and then to a deterministic demo mode. **Keys never reach the browser.**
+All model calls go through one server-side adapter (`src/lib/providers/meta.ts`). Under the hackathon rules (`META_ONLY=on`, the default) the chain is Meta-only: Muse Spark → Muse Wonder (Meta API) → Meta's open Muse Spark weights on Baseten, then a deterministic offline demo planner (no model). The old OpenAI-compatible fallback is kept in code but disabled. **Keys never reach the browser.**
 
 ## Setup
 
@@ -68,7 +68,7 @@ Requires `ffmpeg` on PATH. To run with Docker: `docker compose up --build`.
 | `APP_SECRET` | Encrypts stored keys and signs admin sessions (required) |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | `/admin` login (required; use a generated password) |
 | `META_API_KEY`, `META_BASE_URL` | Meta model access (optional; this can also be set in `/admin`) |
-| `FALLBACK_*` / `XAI_API_KEY` | Any OpenAI-compatible fallback (optional) |
+| `META_ONLY` | `on` (default) = only Meta models run; non-Meta LLM fallbacks and third-party video models are disabled |
 | `ELEVENLABS_API_KEY`, `YOUTUBE_API_KEY` | Premium voices and YouTube Data API (optional) |
 | `DATA_DIR`, `CHROMIUM_PATH` | Storage location and browser binary |
 | `DESK_URL`, `DESK_CDP_URL`, `DESK_AGENT` | Reel's computer service (default `http://127.0.0.1:7900`, CDP `:9333`); `DESK_AGENT=0` keeps the agent on its own headless browser |
@@ -101,3 +101,24 @@ Run locally without Docker: `apt install xvfb openbox tint2 pcmanfm xterm xdotoo
 ## License
 
 MIT
+
+
+## Runtime models
+
+Every AI model ReelForge calls at runtime is a Meta model.
+
+| Part | What runs | Type |
+|---|---|---|
+| Director, script, agent, computer use, continuity review | Meta Muse Spark / Muse Wonder (Meta API, Baseten `muse-spark-open`) | Meta model |
+| Images | Meta Muse Image | Meta model |
+| Person segmentation (optional) | Meta SAM 3.1 | Meta model |
+| Voiceover | Meta MMS-TTS `facebook/mms-tts-eng` (self-hosted, `services/mms-tts`) | Meta model |
+| Dialogue-clarity check | Meta wav2vec2 `facebook/wav2vec2-base-960h` (self-hosted) | Meta model |
+| Character voice variety | FFmpeg pitch/tempo shift + loudness normalisation | System feature |
+| Voice fallback | espeak-ng (offline formant synthesiser) | System feature, not AI |
+| Shot motion (video) | FFmpeg Ken Burns, parallax and crossfades over Muse Image stills | System feature, not AI |
+| Editing, subtitles, mixing | FFmpeg | System feature |
+
+Third-party voices (Edge, ElevenLabs, OpenAI-compatible) are disabled; the code stays behind `THIRD_PARTY_TTS=on`, which is off.
+Third-party video models (LTX, MiniMax, Veo, fal, Replicate, OpenAI-compatible) and the OpenAI-compatible LLM fallback are disabled under the same rules; the code stays behind `META_ONLY=off`.
+MMS-TTS weights are CC-BY-NC 4.0 (non-commercial use only).

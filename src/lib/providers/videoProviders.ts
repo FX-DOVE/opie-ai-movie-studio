@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { db } from "../db";
 import { decrypt, encrypt, mask } from "../crypto";
-import { getConfig } from "../config";
+import { getConfig, metaOnly, META_ONLY_NOTE } from "../config";
 import { aspectSize, type Aspect } from "../types";
 import { mockVideo, veoVideo, type VideoRequest } from "./video";
 
@@ -38,7 +38,7 @@ export const PRESETS: Record<Exclude<VideoType, "mock">, Partial<VideoProviderCf
   fal: { name: "fal.ai (queue API)", baseUrl: "https://queue.fal.run", model: "fal-ai/kling-video/v2.1/pro/image-to-video", maxDuration: 10, aspects: ["16:9", "9:16", "1:1"], firstLast: true, i2v: true },
   replicate: { name: "Replicate", baseUrl: "https://api.replicate.com/v1", model: "minimax/hailuo-02", maxDuration: 10, aspects: ["16:9", "9:16", "1:1"], firstLast: true, i2v: true },
 };
-const DEMO: VideoProviderCfg = { id: "demo", name: "Demo motion (local FFmpeg, free)", type: "mock", enabled: true, baseUrl: "", model: "ffmpeg", maxDuration: 10, aspects: ["16:9", "9:16", "1:1", "4:5"], firstLast: true, i2v: true, costPerSec: 0 };
+const DEMO: VideoProviderCfg = { id: "demo", name: "Motion over Muse Image stills (local FFmpeg)", type: "mock", enabled: true, baseUrl: "", model: "ffmpeg", maxDuration: 10, aspects: ["16:9", "9:16", "1:1", "4:5"], firstLast: true, i2v: true, costPerSec: 0 };
 
 export function listProviders(): VideoProviderCfg[] {
   const raw = db.getSetting("VIDEO_PROVIDERS");
@@ -62,12 +62,13 @@ export async function saveProviders(list: VideoProviderCfg[], keys: Record<strin
   }
 }
 /** Admin view: keys masked. Public view (projects): no key info beyond "has key". */
-export const adminView = () => listProviders().map((p) => ({ ...p, key: providerKey(p.id) ? mask(providerKey(p.id)!) : "" }));
-export const publicView = () => listProviders().filter((p) => p.enabled).map(({ id, name, type, model, maxDuration, aspects, firstLast, i2v, costPerSec }) => ({ id, name, type, model, maxDuration, aspects, firstLast, i2v, costPerSec, ready: type === "mock" || !!providerKey(id) || type === "ltx-comfy" }));
+export const adminView = () => listProviders().map((p) => ({ ...p, key: providerKey(p.id) ? mask(providerKey(p.id)!) : "", blocked: metaOnly() && p.type !== "mock" ? META_ONLY_NOTE : undefined }));
+export const publicView = () => listProviders().filter((p) => p.enabled && (p.type === "mock" || !metaOnly())).map(({ id, name, type, model, maxDuration, aspects, firstLast, i2v, costPerSec }) => ({ id, name, type, model, maxDuration, aspects, firstLast, i2v, costPerSec, ready: type === "mock" || !!providerKey(id) || type === "ltx-comfy" }));
 
 /** Ordered list to try for a project: its chosen provider first, then the rest in Admin order; demo motion last. */
 export function chain(choice?: string) {
-  const all = listProviders().filter((p) => p.enabled && (p.type === "mock" || p.type === "ltx-comfy" || providerKey(p.id)));
+  // hackathon rules: no third-party video models — Ken Burns / parallax / crossfade motion over Muse Image stills only
+  const all = listProviders().filter((p) => p.enabled && (p.type === "mock" || (!metaOnly() && (p.type === "ltx-comfy" || providerKey(p.id)))));
   const first = all.filter((p) => p.id === choice);
   const rest = all.filter((p) => p.id !== choice && p.type !== "mock");
   return [...first, ...rest, ...all.filter((p) => p.type === "mock" && p.id !== choice)];
@@ -235,6 +236,7 @@ async function replicate(c: VideoProviderCfg, key: string, r: VideoRequest, on: 
 }
 
 export async function runProvider(c: VideoProviderCfg, r: VideoRequest, on: Progress = () => {}) {
+  if (metaOnly() && c.type !== "mock") throw new Error(`${c.name}: ${META_ONLY_NOTE}`);
   const req = { ...r, durationSec: Math.max(1, Math.min(r.durationSec, c.maxDuration)), endFrame: c.firstLast ? r.endFrame : undefined };
   const key = providerKey(c.id);
   if (c.type !== "mock" && c.type !== "ltx-comfy" && !key) throw new Error(`${c.name}: no API key saved`);

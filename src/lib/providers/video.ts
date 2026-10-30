@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { getConfig } from "../config";
+import { getConfig, metaOnly } from "../config";
 import { ffmpeg } from "../ffmpeg";
 import { aspectSize, type Aspect } from "../types";
 
@@ -60,5 +60,5 @@ export const veoVideo: VideoProvider = {
 
 export const VIDEO_PROVIDERS = [mockVideo, veoVideo];
 export function videoProvider(): VideoProvider {
-  return getConfig("VIDEO_PROVIDER") === "veo" && getConfig("GEMINI_API_KEY") ? veoVideo : mockVideo;
+  return !metaOnly() && getConfig("VIDEO_PROVIDER") === "veo" && getConfig("GEMINI_API_KEY") ? veoVideo : mockVideo;
 }

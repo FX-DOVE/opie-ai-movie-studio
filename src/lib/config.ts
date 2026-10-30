@@ -5,6 +5,7 @@ export interface FieldDef { key: string; label: string; secret: boolean; group: 
 
 // Everything an admin can configure. Secrets are AES-256-GCM encrypted at rest and never sent to the browser.
 export const FIELDS: FieldDef[] = [
+  { key: "META_ONLY", label: "Meta models only (hackathon rules)", secret: false, group: "Hackathon rules", default: "on", options: ["on", "off"], env: "META_ONLY", help: "ON: every model called at runtime is a Meta model (Muse Spark / Muse Wonder / Muse Image, plus Meta's open Muse Spark weights on Baseten). Non-Meta LLM fallbacks and third-party video models are disabled; video is made with local FFmpeg motion (Ken Burns, parallax, crossfades) over Muse Image stills. The code is kept behind this flag." },
   { key: "META_API_KEY", label: "Meta Model API key", secret: true, group: "Meta Model API", env: "META_API_KEY", help: "dev.meta.ai → API keys. Enables live Muse Spark / Wonder / Image." },
   { key: "META_BASE_URL", label: "Base URL", secret: false, group: "Meta Model API", default: "https://api.meta.ai/v1", env: "META_BASE_URL" },
   { key: "META_TEXT_MODEL", label: "General model (chat, extraction)", secret: false, group: "Meta Model API", default: "muse-spark-1.3", options: ["muse-spark-1.3", "muse-wonder-1.0"] },
@@ -38,16 +39,16 @@ export const FIELDS: FieldDef[] = [
   { key: "AUTO_CONTINUITY", label: "Automatic continuity review & fix", secret: false, group: "Continuity", default: "on", options: ["on", "off"], help: "After shots are generated (or one is regenerated), every shot is reviewed against the character/prop/location bibles; failures are auto-fixed with a Muse Image edit and re-checked." },
   { key: "CONTINUITY_RETRIES", label: "Auto-fix attempts per shot", secret: false, group: "Continuity", default: "2", options: ["0", "1", "2", "3"], help: "After this many failed fixes the shot is marked “Needs attention” with the reason." },
   { key: "LLM_PRIMARY", label: "Which AI answers", secret: false, group: "AI brain (provider chain)", default: "auto", options: ["auto", "meta", "fallback"], help: "auto = Meta Muse when a Meta key is set, otherwise the fallback. If Meta errors, the fallback answers." },
-  { key: "FALLBACK_BASE_URL", label: "Fallback base URL (OpenAI-compatible)", secret: false, group: "AI brain (provider chain)", default: "https://api.x.ai/v1", help: "xAI Grok, OpenAI, OpenRouter, Groq, Together, local Ollama… any /chat/completions API." },
-  { key: "FALLBACK_API_KEY", label: "Fallback API key", secret: true, group: "AI brain (provider chain)", env: "FALLBACK_API_KEY", help: "Leave empty to reuse the xAI key below." },
-  { key: "FALLBACK_MODEL", label: "Fallback text model", secret: false, group: "AI brain (provider chain)", default: "grok-4-fast-non-reasoning" },
-  { key: "FALLBACK_VISION_MODEL", label: "Fallback vision model (screenshots)", secret: false, group: "AI brain (provider chain)", default: "grok-4-fast-non-reasoning" },
+  { key: "FALLBACK_BASE_URL", label: "Fallback base URL (OpenAI-compatible)", secret: false, group: "AI brain (provider chain)", default: "https://api.x.ai/v1", help: "Disabled under the hackathon rules (Meta models only) while META_ONLY is on. xAI Grok, OpenAI, OpenRouter, Groq, Together, local Ollama… any /chat/completions API." },
+  { key: "FALLBACK_API_KEY", label: "Fallback API key", secret: true, group: "AI brain (provider chain)", env: "FALLBACK_API_KEY", help: "Disabled under the hackathon rules (Meta models only) while META_ONLY is on. Leave empty to reuse the xAI key below." },
+  { key: "FALLBACK_MODEL", label: "Fallback text model", secret: false, group: "AI brain (provider chain)", default: "grok-4-fast-non-reasoning" , help: "Disabled under the hackathon rules (Meta models only) while META_ONLY is on."},
+  { key: "FALLBACK_VISION_MODEL", label: "Fallback vision model (screenshots)", secret: false, group: "AI brain (provider chain)", default: "grok-4-fast-non-reasoning" , help: "Disabled under the hackathon rules (Meta models only) while META_ONLY is on."},
   { key: "VIDEO_RETRIES", label: "Retries per video provider before falling back to the next", secret: false, group: "Video (first → last frame)", default: "1", options: ["0", "1", "2", "3"], help: "Providers, keys, models and fallback order are managed in Admin → Video providers." },
   { key: "VIDEO_PROVIDER", label: "Legacy video provider (pre-multi-provider)", secret: false, group: "Video (first → last frame)", default: "mock", options: ["mock", "veo"] },
   { key: "GEMINI_API_KEY", label: "Google Gemini API key (Veo 3.1)", secret: true, group: "Video (first → last frame)", env: "GEMINI_API_KEY" },
   { key: "VEO_MODEL", label: "Veo model", secret: false, group: "Video (first → last frame)", default: "veo-3.1-generate-preview" },
-  { key: "TTS_PROVIDER", label: "Voice provider", secret: false, group: "Voiceover (TTS)", default: "edge", options: ["edge", "elevenlabs", "xai", "openai-compatible"] },
-  { key: "ELEVENLABS_API_KEY", label: "ElevenLabs API key", secret: true, group: "Voiceover (TTS)", env: "ELEVENLABS_API_KEY" },
+  { key: "TTS_PROVIDER", label: "Voice provider", secret: false, group: "Voiceover (TTS)", default: "meta-mms", options: ["meta-mms"], help: "Meta MMS-TTS, self-hosted. Offline fallback: espeak-ng (system voice, not an AI model)." },
+  
   { key: "XAI_API_KEY", label: "xAI API key", secret: true, group: "Voiceover (TTS)", env: "XAI_API_KEY" },
   { key: "TTS_COMPAT_URL", label: "OpenAI-compatible TTS base URL", secret: false, group: "Voiceover (TTS)" },
   { key: "TTS_COMPAT_KEY", label: "OpenAI-compatible TTS key", secret: true, group: "Voiceover (TTS)" },
@@ -101,7 +102,7 @@ export function liveStatus() {
     meta: !!getConfig("META_API_KEY"),
     llm: llmLabel(),
     video: hasVideoProvider(),
-    tts: getConfig("TTS_PROVIDER") || "edge",
+    tts: getConfig("TTS_PROVIDER") || "meta-mms",
     youtube: !!getConfig("YOUTUBE_API_KEY"),
     contributor: contributorOn(),
   };
@@ -114,7 +115,13 @@ export function fallbackName() {
 }
 export type Provider = "meta" | "baseten" | "fallback";
 export type LlmTask = "director" | "review" | "agent" | "general";
-export const providerLive = (x: Provider) => (x === "meta" ? !!getConfig("META_API_KEY") : x === "baseten" ? !!getConfig("BASETEN_API_KEY") : !!fallbackKey());
+/** Hackathon rules: only Meta models at runtime (on by default). */
+export const metaOnly = () => (getConfig("META_ONLY") || "on") !== "off";
+export const META_ONLY_NOTE = "Disabled under the hackathon rules (Meta models only).";
+const isMetaModel = (m?: string) => /muse|^meta-models\/|llama/i.test(m || "");
+export const providerLive = (x: Provider) => (x === "meta" ? !!getConfig("META_API_KEY")
+  : x === "baseten" ? !!getConfig("BASETEN_API_KEY") && (!metaOnly() || isMetaModel(getConfig("BASETEN_MODEL") || "meta-models/muse-spark-open-1026"))
+  : !metaOnly() && !!fallbackKey());
 /** Ordered provider chain actually usable right now, per task (Admin → Task routing). Missing keys drop out; the fallback (OmniRoute) is last unless chosen. */
 export function llmChain(task: LlmTask = "general"): Provider[] {
   const pref = task === "general" ? getConfig("LLM_PRIMARY") || "auto" : getConfig("ROUTE_" + task.toUpperCase()) || "auto";
@@ -129,5 +136,5 @@ export const contributorOn = () => !!getConfig("META_API_KEY") && getConfig("MET
 
 /** true when a real (non-demo) video provider is configured — read lazily to avoid an import cycle */
 function hasVideoProvider() {
-  try { const raw = db.getSetting("VIDEO_PROVIDERS"); const list = raw ? (JSON.parse(raw) as { id: string; type: string; enabled: boolean }[]) : []; return list.some((p) => p.enabled && p.type !== "mock" && (p.type === "ltx-comfy" || !!db.getSetting("VIDEO_KEY_" + p.id))) || (getConfig("VIDEO_PROVIDER") === "veo" && !!getConfig("GEMINI_API_KEY")); } catch { return false; }
+  try { const raw = db.getSetting("VIDEO_PROVIDERS"); const list = raw ? (JSON.parse(raw) as { id: string; type: string; enabled: boolean }[]) : []; if (metaOnly()) return false; return list.some((p) => p.enabled && p.type !== "mock" && (p.type === "ltx-comfy" || !!db.getSetting("VIDEO_KEY_" + p.id))) || (getConfig("VIDEO_PROVIDER") === "veo" && !!getConfig("GEMINI_API_KEY")); } catch { return false; }
 }
