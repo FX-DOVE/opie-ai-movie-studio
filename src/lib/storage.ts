@@ -2,7 +2,8 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { getConfig } from "./config";
-import { MEDIA_DIR } from "./db";
+import { spawnSync } from "node:child_process";
+import { MEDIA_DIR, db } from "./db";
 
 /**
  * Pluggable storage. Media is always produced on local disk (ffmpeg needs real files);
@@ -102,4 +103,74 @@ export async function r2Count(prefix: string): Promise<number> {
   const r = await r2Req(c, "GET", "", undefined, undefined, { "list-type": "2", prefix, "max-keys": "1000" });
   if (!r.ok) throw new Error(`R2 list ${r.status}`);
   return [...(await r.text()).matchAll(/<Key>/g)].length;
+}
+
+/* ---------- R2 as primary store: local disk is only a working cache ---------- */
+
+/** Synchronously pull a missing media file from R2 into the local cache (used by mediaPath, so ffmpeg/vision always get a real file). */
+export function hydrateSync(rel: string, abs: string): boolean {
+  if (!r2Enabled() || fs.existsSync(abs)) return fs.existsSync(abs);
+  const url = presign({ ...r2Conf()!, publicBase: undefined }, "media/" + rel, 600);
+  const js = `const fs=require("fs");(async()=>{const r=await fetch(process.argv[1]);if(!r.ok)process.exit(2);const b=Buffer.from(await r.arrayBuffer());fs.mkdirSync(require("path").dirname(process.argv[2]),{recursive:true});const t=process.argv[2]+".part"+process.pid;fs.writeFileSync(t,b);fs.renameSync(t,process.argv[2]);})().catch(()=>process.exit(3))`;
+  const r = spawnSync(process.execPath, ["-e", js, url, abs], { timeout: 180_000, stdio: "ignore" });
+  return r.status === 0 && fs.existsSync(abs);
+}
+(globalThis as unknown as { __rfHydrate?: typeof hydrateSync }).__rfHydrate = hydrateSync;
+
+/** Does R2 hold this media file? Returns its size, or null. */
+export async function r2Head(rel: string): Promise<{ size: number; etag: string } | null> {
+  const c = r2Conf(); if (!c) return null;
+  const r = await r2Req(c, "HEAD", "media/" + rel); if (!r.ok) return null;
+  return { size: Number(r.headers.get("content-length") || -1), etag: (r.headers.get("etag") || "").replace(/"/g, "") };
+}
+/** Stream a media file from R2 (range-aware) — used when it is no longer on local disk. */
+export async function r2Fetch(rel: string, range?: string | null): Promise<Response | null> {
+  if (!r2Enabled()) return null;
+  const r = await fetch(presign({ ...r2Conf()!, publicBase: undefined }, "media/" + rel, 600), { headers: range ? { range } : {} });
+  return r.ok || r.status === 206 || r.status === 416 ? r : null;
+}
+
+const busy = (pid: string) => {
+  const p = db.getProject(pid); if (!p) return true; // unknown/deleting: leave alone
+  if (["queued", "running"].includes(p.render?.status)) return true;
+  if (p.scenes?.some((s) => s.shots.some((sh) => sh.clipJob && ["queued", "running"].includes(sh.clipJob.state)))) return true;
+  const jobs = (globalThis as unknown as { __jobs?: Map<string, { projectId?: string; done: boolean }> }).__jobs;
+  for (const j of jobs?.values() || []) if (!j.done && j.projectId === pid) return true;
+  return false;
+};
+function walk(d: string, out: string[] = []) { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, e.name); if (e.isDirectory()) walk(f, out); else out.push(f); } return out; }
+
+/** Upload idle local media to R2, verify (size + MD5/ETag) and drop the local copy. */
+export async function offloadOnce(minAgeMs = 10 * 60_000): Promise<{ uploaded: number; dropped: number; failed: number; bytes: number }> {
+  const s = { uploaded: 0, dropped: 0, failed: 0, bytes: 0 };
+  if (!r2Enabled()) return s; const c = r2Conf()!;
+  for (const pid of fs.existsSync(MEDIA_DIR) ? fs.readdirSync(MEDIA_DIR) : []) {
+    const dir = path.join(MEDIA_DIR, pid); if (!fs.statSync(dir).isDirectory() || (pid !== "_admin" && busy(pid))) continue;
+    for (const abs of walk(dir)) {
+      try {
+        if (/\.part\d*$|\.tmp$/.test(abs)) continue;
+        const st = fs.statSync(abs); if (Date.now() - st.mtimeMs < minAgeMs) continue;
+        const rel = path.relative(MEDIA_DIR, abs).split(path.sep).join("/");
+        const buf = fs.readFileSync(abs); const md5 = crypto.createHash("md5").update(buf).digest("hex");
+        let head = await r2Head(rel);
+        if (!head || head.size !== st.size || head.etag !== md5) {
+          const type = ({ ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".mp3": "audio/mpeg", ".wav": "audio/wav", ".mp4": "video/mp4", ".srt": "text/plain", ".vtt": "text/vtt" } as Record<string, string>)[path.extname(abs).toLowerCase()] || "application/octet-stream";
+          const put = await r2Req(c, "PUT", "media/" + rel, buf, type); if (!put.ok) throw new Error("PUT " + put.status);
+          s.uploaded++; head = await r2Head(rel);
+        }
+        if (!head || head.size !== st.size || head.etag !== md5) throw new Error("verify mismatch");
+        if (fs.statSync(abs).mtimeMs !== st.mtimeMs) continue; // rewritten meanwhile
+        fs.unlinkSync(abs); s.dropped++; s.bytes += st.size;
+      } catch (e) { s.failed++; console.error("R2 offload", abs, (e as Error).message); }
+    }
+  }
+  return s;
+}
+const og = globalThis as unknown as { __rfOffload?: NodeJS.Timeout };
+/** Background sweeper: every 5 minutes move idle media to R2. */
+export function startOffloader() {
+  if (og.__rfOffload) return;
+  let running = false;
+  og.__rfOffload = setInterval(() => { if (running) return; running = true; offloadOnce().then((s) => { if (s.dropped || s.failed) console.log("R2 offload", JSON.stringify(s)); }).catch(() => {}).finally(() => { running = false; }); }, 5 * 60_000);
+  og.__rfOffload.unref?.();
 }

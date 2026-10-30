@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { MEDIA_DIR, db } from "@/lib/db";
 import { currentUser } from "@/lib/auth";
-import { remoteUrl } from "@/lib/storage";
+import { remoteUrl, r2Fetch } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 const TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".mp3": "audio/mpeg", ".mp4": "video/mp4", ".srt": "text/plain; charset=utf-8", ".vtt": "text/vtt; charset=utf-8" };
@@ -14,7 +14,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ path: st
   const pid = rel.split("/")[0];
   if (u.role !== "admin") { const p = db.getProject(pid); if (!p || p.ownerId !== u.id) return new Response("forbidden", { status: 403 }); }
   const abs = path.resolve(MEDIA_DIR, rel);
-  if (!abs.startsWith(MEDIA_DIR + path.sep) || !fs.existsSync(abs)) return new Response("not found", { status: 404 });
+  if (!abs.startsWith(MEDIA_DIR + path.sep)) return new Response("not found", { status: 404 });
+  if (!fs.existsSync(abs)) return fromR2(req, rel, abs);
   const stat = fs.statSync(abs);
   const type = TYPES[path.extname(abs).toLowerCase()] || "application/octet-stream";
   const url = new URL(req.url);
@@ -41,4 +42,16 @@ export async function GET(req: Request, { params }: { params: Promise<{ path: st
     return new Response(body(start, end), { status: 206, headers: { ...base, "Content-Range": `bytes ${start}-${end}/${stat.size}`, "Content-Length": String(end - start + 1) } });
   }
   return new Response(body(0, stat.size - 1), { headers: { ...base, "Content-Length": String(stat.size) } });
+}
+
+/** File lives only in R2: images redirect to a presigned URL; video/audio/subtitles/downloads are proxied (same origin, range-aware, real Content-Length). */
+async function fromR2(req: Request, rel: string, abs: string) {
+  const type = TYPES[path.extname(abs).toLowerCase()] || "application/octet-stream";
+  const dl = new URL(req.url).searchParams.get("download");
+  if (!dl && type.startsWith("image/")) { const u = await remoteUrl(rel, type).catch(() => null); if (u) return Response.redirect(u, 302); }
+  const r = await r2Fetch(rel, req.headers.get("range")); if (!r) return new Response("not found", { status: 404 });
+  const h: Record<string, string> = { "Content-Type": type, "Accept-Ranges": "bytes", "Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff" };
+  for (const k of ["content-length", "content-range"]) { const v = r.headers.get(k); if (v) h[k] = v; }
+  if (dl) h["Content-Disposition"] = `attachment; filename="${(dl === "1" ? path.basename(abs) : dl).replace(/[^\w.-]+/g, "_")}"`;
+  return new Response(r.body, { status: r.status, headers: h });
 }

@@ -95,5 +95,6 @@ export function mediaPath(url: string) {
   const rel = url.replace(/^\/api\/files\//, "").split("?")[0];
   const abs = path.resolve(MEDIA_DIR, rel);
   if (!abs.startsWith(MEDIA_DIR)) throw new Error("bad path");
+  if (!fs.existsSync(abs)) { try { (globalThis as unknown as { __rfHydrate?: (r: string, a: string) => boolean }).__rfHydrate?.(rel, abs); } catch { /* not in R2 either */ } } // R2 is the primary store; disk is a cache
   return abs;
 }

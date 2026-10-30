@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { startOffloader } from "./storage";
 import { recoverJobs } from "./jobs";
 import "./actions"; // registers the job runner
 import * as R from "./render";
@@ -16,6 +17,7 @@ export function recoverNow(): Promise<Out> {
       for (const p of db.listProjects()) await db.update(p.id, (x) => { clearLinesFor(x, assignVoices(x)); }).catch(() => {});
       await db.setSetting("migr_voices_v2", new Date().toISOString());
     }
+    startOffloader();
     const jobs = recoverJobs();
     const renders: string[] = []; let clips = 0, reviews = 0;
     for (const p of db.listProjects()) {
