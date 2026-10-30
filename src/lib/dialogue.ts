@@ -97,6 +97,22 @@ export function wer(ref: string, hyp: string) {
   return +(d[r.length][h.length] / r.length).toFixed(3);
 }
 
+const lev = <T,>(a: T[], b: T[]) => { let prev = Array.from({ length: b.length + 1 }, (_, j) => j); for (let i = 1; i <= a.length; i++) { const cur = [i]; for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = cur; } return prev[b.length]; };
+const normWords = (s: string) => speakable(s).toLowerCase().replace(/-/g, " ").replace(/[’']/g, "").replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
+/** Character error rate over normalised text (spaces ignored) — fairer than WER on short lines. */
+export function cer(ref: string, hyp: string) { const r = [...normWords(ref).join("")], h = [...normWords(hyp).join("")]; return r.length ? +(lev(r, h) / r.length).toFixed(3) : h.length ? 1 : 0; }
+export const MAX_CER = 0.12;
+/**
+ * Clarity verdict. Passes when WER ≤ 20%, or — for short lines (≤ 6 words), where one slip is a big WER —
+ * when at most one word differs, or when the character error rate is ≤ 12% (near-miss spellings like "akara"/"akarah").
+ */
+export function clarity(ref: string, hyp: string) {
+  const r = normWords(ref), h = normWords(hyp); const edits = lev(r, h);
+  const w = r.length ? +(edits / r.length).toFixed(3) : h.length ? 1 : 0; const c = cer(ref, hyp);
+  const pass = w <= MAX_WER || (r.length <= 6 && edits <= 1) || c <= MAX_CER;
+  return { wer: w, cer: c, edits, pass };
+}
+
 export const sttOn = () => (getConfig("DIALOGUE_CHECK") || "on") !== "off";
 
 /** Speech-to-text with Meta wav2vec2 (facebook/wav2vec2-base-960h) in the self-hosted voice service. */

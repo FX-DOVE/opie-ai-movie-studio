@@ -8,7 +8,7 @@ import { chain, estimate, listProviders, runProvider } from "./providers/videoPr
 import { chat, llmLive, structured } from "./providers/meta";
 import { findShot, genreFor } from "./studio";
 import { genreBrief } from "./genres";
-import { MAX_WER, MAX_WPS, slowDown, speakable, sttOn, transcribe, wer } from "./dialogue";
+import { MAX_WPS, clarity, slowDown, speakable, sttOn, transcribe } from "./dialogue";
 import { record, withStep } from "./usage";
 import { getConfig } from "./config";
 import { aspectSize, type Project, type Shot } from "./types";
@@ -47,7 +47,7 @@ export async function voiceShot(p: Project, shotId: string, opts: { spoken?: str
  * spelled, symbols spoken) and then slower — and the shot is re-fitted so speech never runs into the next shot.
  */
 export async function clarityShot(pid: string, shotId: string) {
-  const issues: string[] = []; let attempts = 0; let werV: number | undefined; let heard: string | undefined; let wps = 0; let source = "pace";
+  const issues: string[] = []; let attempts = 0; let werV: number | undefined; let cerV: number | undefined; let heard: string | undefined; let wps = 0; let source = "pace";
   for (;;) {
     const p = db.getProject(pid)!; const sh = findShot(p, shotId);
     const text = sh.narration || sh.dialogue; if (!text || !sh.audioUrl || !fs.existsSync(mediaPath(sh.audioUrl))) return null;
@@ -59,13 +59,13 @@ export async function clarityShot(pid: string, shotId: string) {
     if (sttOn()) {
       try {
         const names = [sh.speaker, ...p.assets.filter((a) => a.kind === "character").map((a) => a.name)].filter(Boolean) as string[];
-        heard = await transcribe(file, names); werV = wer(text, heard); source = "Meta wav2vec2 speech-to-text";
-        if (werV > MAX_WER) issues.push(`unclear (WER ${(werV * 100).toFixed(0)}%: heard "${heard.slice(0, 80)}")`);
+        heard = await transcribe(file, names); const v = clarity(text, heard); werV = v.wer; cerV = v.cer; source = "Meta wav2vec2 speech-to-text";
+        if (!v.pass) issues.push(`unclear (WER ${(v.wer * 100).toFixed(0)}%, CER ${(v.cer * 100).toFixed(0)}%: heard "${heard.slice(0, 80)}")`);
       } catch (e) { source = `pace only (STT: ${(e as Error).message.slice(0, 60)})`; }
     }
     if (!issues.length || attempts >= 2) {
       const ok = !issues.length;
-      await db.update(pid, (x) => { const t = findShot(x, shotId); t.clarity = { audio: t.audioUrl, ok, wer: werV, heard, wps, issues: [...issues], attempts, checkedAt: now(), source }; if (!t.durationLocked) t.durationSec = Math.max(t.durationSec, fitDuration(dur)); });
+      await db.update(pid, (x) => { const t = findShot(x, shotId); t.clarity = { audio: t.audioUrl, ok, wer: werV, cer: cerV, heard, wps, issues: [...issues], attempts, checkedAt: now(), source }; if (!t.durationLocked) t.durationSec = Math.max(t.durationSec, fitDuration(dur)); });
       return { ok, issues, wer: werV, wps, attempts };
     }
     attempts++;

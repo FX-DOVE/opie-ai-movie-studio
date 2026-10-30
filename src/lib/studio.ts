@@ -1,3 +1,4 @@
+import { ttsProvider } from "./providers/tts";
 import { assignVoices, clearLinesFor } from "./voices";
 import { memoryBrief } from "./memory";
 import fs from "node:fs";
@@ -140,12 +141,16 @@ Finally.
 FADE OUT.`;
 }
 
+/** MMS (Meta's open TTS) reads plain words cleanly but stumbles on slang, rare names, numerals and long tongue-twisters. */
+function voiceWritingNote() {
+  return ttsProvider().id === "meta-mms" ? "Dialogue will be voiced by a synthetic voice: write lines of 4–14 words using clear, common, easily pronounced English words; spell numbers as words; avoid abbreviations, symbols, heavy slang, stacked consonant clusters and unusual invented names (if a culture-specific word is essential, use it at most once per line and keep the rest simple)." : "";
+}
 export async function writeScript(p: Project, instruction: string) {
   const hasScript = p.script.trim().length > 40;
   if (!hasScript) { await pickGenre(p, instruction); p = db.getProject(p.id) || p; }
   const g = genreFor(p);
   const { data, source } = await structured<{ title: string; script: string }>(
-    `You are an award-winning screenwriter for an AI movie studio. ${ctx(p, "script", "script")} Write in standard screenplay format: a first line "TITLE: ...", scene headings (INT./EXT. LOCATION - TIME), action lines, CHARACTER names in caps on their own line, optional (parentheticals), dialogue, and transitions like CUT TO:. ${p.mode !== "drama" ? "Use NARRATOR for voiceover lines." : ""} Describe characters vividly on first appearance (age, face, hair, skin tone, wardrobe colours, makeup, accessories) so continuity can be tracked. Keep runtime within the format limit.${g ? ` Follow the FILM STYLE SKILL: its beat structure, archetypes, dialogue voice and pacing. Dialogue lines: one speaker each, 4–14 words, no parentheticals inside lines.` : ""} Never use existing film titles, franchise names, characters or real people. Return {"title": string, "script": string}.`,
+    `You are an award-winning screenwriter for an AI movie studio. ${ctx(p, "script", "script")} Write in standard screenplay format: a first line "TITLE: ...", scene headings (INT./EXT. LOCATION - TIME), action lines, CHARACTER names in caps on their own line, optional (parentheticals), dialogue, and transitions like CUT TO:. ${p.mode !== "drama" ? "Use NARRATOR for voiceover lines." : ""} ${voiceWritingNote()} Describe characters vividly on first appearance (age, face, hair, skin tone, wardrobe colours, makeup, accessories) so continuity can be tracked. Keep runtime within the format limit.${g ? ` Follow the FILM STYLE SKILL: its beat structure, archetypes, dialogue voice and pacing. Dialogue lines: one speaker each, 4–14 words, no parentheticals inside lines.` : ""} Never use existing film titles, franchise names, characters or real people. Return {"title": string, "script": string}.`,
     hasScript ? `Current script:\n${p.script}\n\nRevise it according to: ${instruction || "tighten and improve it"}` : `Idea: ${instruction || p.idea}${p.brainstorm.length ? `\n\nBrainstorm notes:\n${p.brainstorm.slice(-6).map((m) => m.content).join("\n")}` : ""}${(p.research || []).length ? `\n\nResearch notes:\n${(p.research || []).slice(-2).map((r) => r.notes.slice(0, 1500)).join("\n---\n")}` : ""}`,
     () => {
       if (hasScript) {

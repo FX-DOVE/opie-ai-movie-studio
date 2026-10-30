@@ -45,8 +45,8 @@ export function EditTab({ p, act, busy, patch }: TabProps & { patch: (b: Partial
                 <span className="text-xs text-ink-400">{shots.length} shots · ~{total.toFixed(0)}s · {p.aspect}{(() => { const c = shots.filter((s) => s.clarity); return c.length ? ` · dialogue ${c.filter((s) => s.clarity!.ok).length}/${c.length} clear` : ""; })()}</span>
                 <div className="ml-auto flex gap-2">
                   <button className="btn-outline" disabled={rendering || !shots.length} onClick={() => act("render")}>{rendering ? <Spinner /> : <RefreshCw className="h-4 w-4" />}{r.status === "done" ? "Re-render" : "Render"}</button>
-                  {r.status === "done" && r.url && <a className="btn-brand" href={r.url} download={`${p.title.replace(/[^\w-]+/g, "_")}.mp4`}><Download className="h-4 w-4" />Export MP4</a>}
-                  {r.status === "done" && r.srtUrl && <a className="btn-outline" href={r.srtUrl} download={`${p.title.replace(/[^\w-]+/g, "_")}.srt`}>Subtitles</a>}
+                  {r.status === "done" && r.url && <a className="btn-brand" href={`${r.url}?download=${encodeURIComponent(p.title.replace(/[^\w-]+/g, "_") + ".mp4")}`} download={`${p.title.replace(/[^\w-]+/g, "_")}.mp4`}><Download className="h-4 w-4" />Export MP4</a>}
+                  {r.status === "done" && r.srtUrl && <a className="btn-outline" href={`${r.srtUrl}?download=${encodeURIComponent(p.title.replace(/[^\w-]+/g, "_") + ".srt")}`} download={`${p.title.replace(/[^\w-]+/g, "_")}.srt`}>Subtitles</a>}
                 </div>
               </div>
             </div>

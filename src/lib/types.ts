@@ -61,7 +61,7 @@ export interface Shot {
   /** screen direction / axis note, e.g. "Ada frame-left looking right; moves L→R" */
   screen?: string;
   /** automatic dialogue-clarity check of the voiced line (speech-to-text round trip) */
-  clarity?: { audio?: string; ok: boolean; wer?: number; heard?: string; wps?: number; issues: string[]; attempts: number; checkedAt: string; source: string };
+  clarity?: { audio?: string; ok: boolean; wer?: number; cer?: number; heard?: string; wps?: number; issues: string[]; attempts: number; checkedAt: string; source: string };
 }
 
 export interface Scene { id: string; heading: string; summary: string; shots: Shot[] }
