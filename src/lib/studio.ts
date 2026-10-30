@@ -382,12 +382,13 @@ export async function buildStoryboard(p: Project) {
   const maxSec = FORMATS[p.format].maxSec;
   const hasNarrator = p.mode !== "drama" || /^\s*NARRATOR\b/m.test(p.script);
   const budget = ` RUNTIME BUDGET: the sum of all durationSec must be ≤ ${maxSec}s (aim for ${Math.round(maxSec * 0.9)}s) — merge or drop shots to fit; never exceed it. ${hasNarrator ? "narration is only for NARRATOR/voice-over lines from the script." : "This is a drama with no narrator: leave narration empty on every shot."} Never put sound effects, music cues or notes like "No dialogue" into dialogue or narration — silent shots simply have no dialogue.`;
-  let { data, source } = await structured<{ scenes: { heading: string; summary: string; shots: PlanShot[] }[] }>(
+  const plan = await structured<{ scenes: { heading: string; summary: string; shots: PlanShot[] }[] }>(
     `You are ReelForge's AI director (Muse Wonder). ${ctx(p, "director", "director")} Break the screenplay into a shot list for an AI video pipeline that uses a START frame and an END frame per shot (the end frame of one shot should flow into the next). For each shot give: description (what we see at the start), end (what we see at the end), camera (shot size + movement), speaker+dialogue OR narration, durationSec (3-8), assets (names from the asset list that must appear), beat (the genre beat type for this shot), screen (screen direction: who is frame-left/right, facing and movement direction — keep it consistent across the scene unless a shot deliberately crosses the line). One speaker per shot; dialogue ≤ 14 words — split longer speeches across shots with reaction coverage. Respect the production bible and the FILM STYLE SKILL's shot grammar.${budget}\n\nASSETS:\n${p.assets.map((a) => `${a.kind}: ${a.name}`).join("\n")}\n\nReturn {"scenes":[{"heading","summary","shots":[...]}]}.`,
     `${p.script}${p.bible ? `\n\nPRODUCTION BIBLE:\n${p.bible.slice(0, 3000)}` : ""}`,
     () => mockStoryboard(p),
     undefined, "director",
   );
+  let data = plan.data; const source = plan.source;
   const total = (d: typeof data) => d.scenes.reduce((n, s) => n + (s.shots || []).reduce((m, sh) => m + (Number(sh.durationSec) || 4), 0), 0);
   if (source !== "mock" && total(data) > maxSec * 1.15) {
     // over the platform limit: one compression pass keeps the strongest beats and drops the rest
