@@ -64,16 +64,33 @@ export async function clarityShot(pid: string, shotId: string) {
         if (!v.pass) issues.push(`unclear (WER ${(v.wer * 100).toFixed(0)}%, CER ${(v.cer * 100).toFixed(0)}%: heard "${heard.slice(0, 80)}")`);
       } catch (e) { source = `pace only (STT: ${(e as Error).message.slice(0, 60)})`; }
     }
-    if (!issues.length || attempts >= 2) {
+    if (!issues.length || attempts >= 3) {
       const ok = !issues.length;
       await db.update(pid, (x) => { const t = findShot(x, shotId); t.clarity = { audio: t.audioUrl, ok, wer: werV, cer: cerV, heard, wps, issues: [...issues], attempts, checkedAt: now(), source }; if (!t.durationLocked) t.durationSec = Math.max(t.durationSec, fitDuration(dur)); });
       return { ok, issues, wer: werV, wps, attempts };
     }
     attempts++;
-    // fix 1: speakable text (+ slow if rushed); fix 2: speakable and 12% slower
+    // fix 1: speakable text (+ slow if rushed); fix 2: speakable and 12% slower; fix 3: Muse Spark rewrites it in plain MMS-friendly words
+    if (attempts === 3) {
+      const simple = await mmsFriendly(text, heard).catch(() => null);
+      if (!simple || simple.toLowerCase() === text.toLowerCase()) { attempts = 3; continue; }
+      await db.update(pid, (x) => { const t = findShot(x, shotId); if (t.narration) t.narration = simple; else t.dialogue = simple; });
+      await voiceShot(db.getProject(pid)!, shotId, { spoken: speakable(simple), tempo: 0.92 });
+      continue;
+    }
     const tempo = attempts === 2 ? 0.88 : wps > MAX_WPS ? Math.max(0.8, 3.0 / wps) : undefined;
     await voiceShot(p, shotId, { spoken: speakable(text), tempo });
   }
+}
+
+/** Rewrite a line the Meta MMS voice keeps garbling into short, common, clearly-sounding words with the same meaning. */
+async function mmsFriendly(text: string, heard?: string) {
+  if (!llmLive()) return null;
+  const { data } = await structured<{ line: string }>(
+    `Rewrite a film line so a simple text-to-speech voice says it clearly. Keep the meaning, speaker tone and roughly the same length. Use short everyday words (1-2 syllables), plain full sentences, no contractions, no slang, no rare names or foreign words unless essential, no abbreviations, numbers as words. Avoid words that sound alike when mumbled. Output {"line":"..."} only.`,
+    `Line: ${text}${heard ? `\nThe voice was misheard as: ${heard}` : ""}`, () => ({ line: text }), undefined, "general");
+  const l = String(data?.line || "").replace(/^["']|["']$/g, "").trim();
+  return l && l.length < text.length * 1.6 + 20 ? l : null;
 }
 
 export async function voiceAll(p: Project) {
