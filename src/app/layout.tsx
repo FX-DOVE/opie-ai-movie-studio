@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   applicationName: "ReelForge Studio",
   openGraph: { title: "ReelForge Studio", description: "Idea to finished film in one AI studio.", images: ["/brand/still-lagos.webp"] },
 };
-export const viewport: Viewport = { themeColor: "#0a0a0b", width: "device-width", initialScale: 1, maximumScale: 1, interactiveWidget: "resizes-content", viewportFit: "cover" };
+export const viewport: Viewport = { themeColor: "#ffffff", width: "device-width", initialScale: 1, maximumScale: 1, interactiveWidget: "resizes-content", viewportFit: "cover" };
 
 // Runs before any app code: tag same-origin fetch/XHR so the tunnel never swaps a response for its HTML warning
 // page, and (on tunnel hosts only) install the service worker that does the same for scripts and images. On the real domain any old

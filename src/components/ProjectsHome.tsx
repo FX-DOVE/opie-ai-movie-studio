@@ -1,4 +1,5 @@
 "use client";
+import { motion } from "motion/react";
 import { friendly } from "@/lib/net";
 import { FilmStylePicker } from "./FilmStylePicker";
 import Link from "next/link";
@@ -49,7 +50,7 @@ export function ProjectsHome() {
         </button>
         {rows === null && Array.from({ length: 3 }).map((_, i) => <div key={i} className="shimmer aspect-[4/3] rounded-2xl" />)}
         {list.map((r) => (
-          <div key={r.id} className="group relative">
+          <motion.div key={r.id} layout initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96 }} transition={{ type: "spring", stiffness: 160, damping: 22 }} className="group relative">
             <Link href={`/studio/${r.id}`} className="block overflow-hidden rounded-[22px] border border-white/[0.06] bg-ink-850 transition duration-300 hover:-translate-y-0.5 hover:border-white/15 hover:shadow-2xl hover:shadow-black/40">
               <div className="relative aspect-[4/3] bg-ink-800">
                 {r.cover ? <img src={r.cover} alt="" className="absolute inset-0 h-full w-full object-cover" /> : <div className="absolute inset-0 grid place-items-center text-ink-600"><Clapperboard className="h-10 w-10" /></div>}
@@ -63,7 +64,7 @@ export function ProjectsHome() {
               </div>
             </Link>
             <button aria-label="Delete project" className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-lg bg-black/60 text-white/80 hover:text-red-300 md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100" onClick={() => setDel(r)}><Trash2 className="h-4 w-4" /></button>
-          </div>
+          </motion.div>
         ))}
       </div>
       <NewProject open={open} onClose={() => setOpen(false)} />

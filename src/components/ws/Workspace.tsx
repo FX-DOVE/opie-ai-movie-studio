@@ -1,4 +1,5 @@
 "use client";
+import { motion } from "motion/react";
 import { friendly, jobPost, waitJob, H } from "@/lib/net";
 import { FilmStylePicker } from "../FilmStylePicker";
 import Link from "next/link";
@@ -151,13 +152,13 @@ export function Workspace({ id }: { id: string }) {
         </header>
         {contrib && <div role="note" className="border-b border-amber-400/20 bg-amber-500/10 px-4 py-1.5 text-center text-[11px] text-amber-200">Contributor mode is on (Admin): text inputs in this project may be used by Meta for training.</div>}
         {bg.length > 0 && <div role="status" className="flex items-center justify-center gap-2 border-b border-white/[0.06] bg-brand-500/10 px-4 py-1.5 text-[11px] text-brand-200"><Spinner className="h-3 w-3" />Working in the background on the server: {[...new Set(bg.map((j) => j.action))].join(", ")} — safe to close this page.</div>}
-        <main className="flex min-h-0 flex-1 flex-col">
+        <main className="flex min-h-0 flex-1 flex-col"><motion.div key={tab} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }} className="flex min-h-0 flex-1 flex-col">
           {tab === "script" && <ScriptTab {...props} openBrainstorm={params.get("brainstorm") === "1"} next={() => setTab("assets")} />}
           {tab === "assets" && <AssetsTab {...props} next={() => setTab("storyboard")} />}
           {tab === "storyboard" && <StoryboardTab {...props} next={() => setTab("video")} />}
           {tab === "video" && <VideoTab {...props} patch={patch} next={() => setTab("edit")} />}
           {tab === "edit" && <EditTab {...props} patch={patch} />}
-        </main>
+        </motion.div></main>
       </div>
       {node}
       <Modal open={pipe} onClose={() => setPipe(false)} title="Pipeline · Built with Meta">

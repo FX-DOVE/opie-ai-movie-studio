@@ -12,6 +12,7 @@
     "bcryptjs": "^3.0.3",
     "jose": "^6.2.13",
     "lucide-react": "^1.61.0",
+    "motion": "^14.9.0",
     "msedge-tts": "^2.1.1",
     "nanoid": "^5.1.16",
     "next": "15.5.28",

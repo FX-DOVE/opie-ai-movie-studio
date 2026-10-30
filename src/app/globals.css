@@ -1,31 +1,46 @@
 @import "tailwindcss";
 
 @theme {
-  --color-ink-950: #0a0a0b;
-  --color-ink-900: #0f0f10;
-  --color-ink-850: #141415;
-  --color-ink-800: #19191b;
-  --color-ink-700: #232326;
-  --color-ink-600: #2f2f33;
-  --color-ink-400: #8b8b90;
-  --color-ink-300: #b4b4b8;
-  --color-brand-500: #e9a83c;
-  --color-brand-400: #f2bf62;
+  /* light, Apple-like: "ink" is the surface scale (950 = page) and "white" is the foreground colour */
+  --color-white: #1d1d1f;
+  --color-black: #000000;
+  --color-ink-950: #ffffff;
+  --color-ink-900: #f5f5f7;
+  --color-ink-850: #ffffff;
+  --color-ink-800: #f0f0f3;
+  --color-ink-700: #e3e3e8;
+  --color-ink-600: #c7c7cc;
+  --color-ink-500: #86868b;
+  --color-ink-400: #6e6e73;
+  --color-ink-300: #424245;
+  --color-ink-200: #2c2c2e;
+  --color-brand-500: #0071e3;
+  --color-brand-400: #0066cc;
+  --color-brand-200: #0058b0;
+  --color-brand-300: #005bbf;
   --color-sky-glow: #8fb8c6;
+  /* status colours re-tuned for white surfaces (AA on #fff) */
+  --color-red-100: #7f1d1d; --color-red-200: #991b1b; --color-red-300: #b91c1c; --color-red-400: #dc2626;
+  --color-emerald-300: #047857; --color-emerald-400: #059669;
+  --color-amber-200: #92400e; --color-amber-300: #b45309; --color-amber-400: #d97706;
+  --color-sky-100: #0c4a6e; --color-sky-300: #0369a1; --color-sky-400: #0284c7;
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-mono-face), ui-monospace, monospace;
   --font-display: var(--font-display-face), Georgia, serif;
 }
 
-:root { color-scheme: dark; }
-html, body { background: var(--color-ink-950); color: #ededea; }
+:root { color-scheme: light; }
+html, body { background: var(--color-ink-950); color: #1d1d1f; }
+/* dark islands: the video player, film frames and the desktop screen keep the original dark palette */
+.dark-surface, [class~="bg-black"], [class*=" bg-black/"], [class^="bg-black/"], [class*="from-black"] { --color-white: #ffffff; --color-ink-950: #0a0a0b; --color-ink-900: #0f0f10; --color-ink-850: #141415; --color-ink-800: #19191b; --color-ink-700: #232326; --color-ink-600: #2f2f33; --color-ink-400: #8b8b90; --color-ink-300: #b4b4b8; color: #ededea; color-scheme: dark; }
+.on-media { --color-white: #ffffff; --color-ink-300: #d2d2d7; --color-ink-400: #a1a1a6; }
 body { -webkit-font-smoothing: antialiased; }
-* { scrollbar-width: thin; scrollbar-color: #2f2f33 transparent; }
+* { scrollbar-width: thin; scrollbar-color: #c7c7cc transparent; }
 
-@utility panel { @apply rounded-2xl border border-white/[0.07] bg-ink-850; }
+@utility panel { @apply rounded-2xl border border-black/[0.06] bg-ink-850 shadow-[0_1px_2px_rgba(0,0,0,.04),0_8px_24px_rgba(0,0,0,.05)]; }
 @utility btn { @apply inline-flex items-center justify-center gap-2 rounded-xl px-3.5 h-9 text-sm font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none whitespace-nowrap; }
-@utility btn-primary { @apply btn bg-white text-ink-950 hover:bg-white/90; }
-@utility btn-brand { @apply btn text-ink-950 font-semibold bg-brand-500 hover:bg-brand-400; }
+@utility btn-primary { @apply btn bg-white text-ink-950 hover:bg-white/85; }
+@utility btn-brand { @apply btn text-[#fff] font-semibold bg-brand-500 hover:bg-brand-400 shadow-sm; }
 @utility btn-ghost { @apply btn text-ink-300 hover:text-white hover:bg-white/[0.06]; }
 @utility btn-outline { @apply btn border border-white/10 text-white/90 hover:bg-white/[0.06]; }
 @utility input { @apply w-full rounded-xl border border-white/10 bg-ink-900 px-3 py-2 text-base sm:text-sm text-white placeholder:text-ink-400 outline-none focus:border-brand-400/70 focus:ring-2 focus:ring-brand-500/20; }
@@ -35,9 +50,9 @@ body { -webkit-font-smoothing: antialiased; }
 @utility badge { @apply inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider; }
 
 .screenplay { font-family: "Courier Prime", "Courier New", var(--font-mono); }
-.shimmer { background: linear-gradient(110deg, #19191b 8%, #232326 18%, #19191b 33%); background-size: 200% 100%; animation: sh 1.4s linear infinite; }
+.shimmer { background: linear-gradient(110deg, #f0f0f3 8%, #e3e3e8 18%, #f0f0f3 33%); background-size: 200% 100%; animation: sh 1.4s linear infinite; }
 @keyframes sh { to { background-position-x: -200%; } }
-.glow { background: radial-gradient(50% 45% at 50% 0%, rgba(233,168,60,.10), transparent 70%); }
+.glow { background: radial-gradient(50% 45% at 50% 0%, rgba(0,113,227,.07), transparent 70%); }
 .pb-safe { padding-bottom: max(env(safe-area-inset-bottom), 0px); }
 
 html, body { overflow-x: hidden; }

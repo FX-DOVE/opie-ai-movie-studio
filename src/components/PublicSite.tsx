@@ -9,7 +9,7 @@ import { currentUser } from "@/lib/auth";
 export async function PublicNav({ overlay = false }: { overlay?: boolean }) {
   const signedIn = !!(await currentUser());
   return (
-    <header className={`${overlay ? "absolute" : "sticky border-b border-white/[0.06] bg-ink-950/85 backdrop-blur-xl"} inset-x-0 top-0 z-40 pt-safe`}>
+    <header className={`${overlay ? "absolute" : "sticky border-b border-black/[0.06] bg-[#fff]/80 backdrop-blur-xl"} inset-x-0 top-0 z-40 pt-safe`}>
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-5 sm:px-8">
         <Link href={signedIn ? "/?site" : "/"} aria-label="ReelForge Studio home"><Logo /></Link>
         <nav className="hidden items-center gap-1 md:flex">
@@ -18,7 +18,7 @@ export async function PublicNav({ overlay = false }: { overlay?: boolean }) {
         <div className="flex items-center gap-2">
           {signedIn ? <Link href="/dashboard" className="btn-primary hidden h-10 md:inline-flex">Dashboard</Link> : <>
             <Link href="/login" className="btn-ghost hidden h-10 md:inline-flex">Log in</Link>
-            <Link href="/signup" className="btn-brand h-10 px-4">Get started</Link></>}
+            <Link href="/signup" className="btn-brand h-10 rounded-full px-4">Start creating</Link></>}
           <PublicMenu signedIn={signedIn} />
         </div>
       </div>
@@ -37,7 +37,7 @@ export function PublicFooter() {
       <div className="mx-auto grid max-w-7xl gap-10 px-5 py-14 sm:px-8 md:grid-cols-[1.4fr_repeat(3,1fr)]">
         <div>
           <Logo />
-          <p className="mt-4 max-w-xs text-sm leading-relaxed text-ink-400">An AI film studio: from a single idea to a finished, consistent film.</p>
+          <p className="mt-4 max-w-xs text-sm leading-relaxed text-ink-400">From a single idea to a finished, consistent film.</p>
         </div>
         {cols.map(([h, ls]) => (
           <div key={h}>
@@ -59,13 +59,13 @@ export function PublicFooter() {
 export function CtaBand({ title = "Your first film is one sentence away.", sub = "Free during the beta. No card needed." }: { title?: string; sub?: string }) {
   return (
     <section className="mx-auto max-w-7xl px-5 pb-20 sm:px-8 sm:pb-28">
-      <div className="grain relative overflow-hidden rounded-3xl border border-white/[0.08] bg-gradient-to-br from-ink-850 via-ink-900 to-ink-950 px-6 py-12 sm:px-12 sm:py-16">
-        <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-brand-500/20 blur-3xl" />
-        <h2 className="font-display max-w-2xl text-4xl leading-[1.05] sm:text-5xl">{title}</h2>
+      <div className="grain relative overflow-hidden rounded-[32px] border border-black/[0.05] bg-ink-900 px-6 py-12 sm:px-12 sm:py-16">
+        <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-brand-500/10 blur-3xl" />
+        <h2 className="max-w-2xl text-4xl font-semibold leading-[1.05] tracking-[-0.03em] sm:text-5xl">{title}</h2>
         <p className="mt-4 max-w-md text-ink-300">{sub}</p>
         <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-          <Link href="/signup" className="btn-brand h-12 px-6 text-base">Get started <ArrowRight className="h-4 w-4" /></Link>
-          <Link href="/login" className="btn-outline h-12 px-6 text-base">Log in</Link>
+          <Link href="/signup" className="btn-brand h-12 rounded-full px-7 text-base">Start creating <ArrowRight className="h-4 w-4" /></Link>
+          <Link href="/login" className="btn-outline h-12 rounded-full px-7 text-base">Log in</Link>
         </div>
       </div>
     </section>
@@ -76,7 +76,7 @@ export function PageHero({ kicker, title, sub }: { kicker: string; title: React.
   return (
     <section className="mx-auto max-w-7xl px-5 pb-10 pt-14 sm:px-8 sm:pb-14 sm:pt-20">
       <p className="text-xs font-medium uppercase tracking-[0.22em] text-brand-400">{kicker}</p>
-      <h1 className="font-display mt-4 max-w-3xl text-[40px] leading-[1.02] sm:text-6xl">{title}</h1>
+      <h1 className="mt-4 max-w-3xl text-[40px] font-semibold leading-[1.02] tracking-[-0.03em] sm:text-6xl">{title}</h1>
       {sub && <p className="mt-5 max-w-2xl text-pretty text-base leading-relaxed text-ink-300 sm:text-lg">{sub}</p>}
     </section>
   );
