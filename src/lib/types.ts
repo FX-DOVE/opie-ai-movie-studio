@@ -56,6 +56,8 @@ export interface Shot {
   durationLocked?: boolean;
   /** which TTS engine voiced this line ("none" = TTS unavailable) */
   audioProvider?: string;
+  /** HyperFrames template + slot values (schema-validated JSON from Muse Spark) */
+  motionSpec?: import("./motion").MotionSpec;
   /** genre beat type from the film-style skill (establish, action, impact, dialogue, reaction…) */
   beat?: string;
   /** screen direction / axis note, e.g. "Ada frame-left looking right; moves L→R" */
@@ -70,7 +72,7 @@ export interface Idea { title: string; logline: string; hook?: string; beats?: s
 export interface ChatMsg { role: "user" | "assistant"; content: string; at: string; provider?: string; ideas?: Idea[]; kind?: "note" | "research" }
 export interface ResearchNote { id: string; goal: string; notes: string; at: string; provider?: string }
 
-export interface RenderJob { status: "idle" | "queued" | "running" | "done" | "error"; progress: number; message: string; url?: string; updatedAt: string; review?: string; warnings?: string[]; srtUrl?: string; loudness?: number; jobId?: string; startedAt?: string; attempts?: number }
+export interface RenderJob { status: "idle" | "queued" | "running" | "done" | "error"; progress: number; message: string; url?: string; updatedAt: string; review?: string; warnings?: string[]; motion?: string; srtUrl?: string; loudness?: number; jobId?: string; startedAt?: string; attempts?: number }
 
 export interface MemoryNote { id: string; text: string; category: "genre" | "pacing" | "tone" | "visual" | "characters" | "wardrobe" | "voice" | "rejects" | "other"; at: string; source?: string; hits?: number }
 export interface UserMemory { enabled: boolean; notes: MemoryNote[]; updatedAt?: string }

@@ -4,7 +4,7 @@ import { ffmpeg } from "../ffmpeg";
 import { aspectSize, type Aspect } from "../types";
 
 /** First-frame → last-frame video generation. Providers are plug-ins selected in Admin. */
-export interface VideoRequest { startFrame: string; endFrame?: string; prompt: string; aspect: Aspect; durationSec: number; outFile: string }
+export interface VideoRequest { startFrame: string; endFrame?: string; prompt: string; aspect: Aspect; durationSec: number; outFile: string; projectId?: string; shotId?: string }
 export interface VideoProvider { id: string; label: string; generate(r: VideoRequest, o?: { key: string; model?: string; base?: string }): Promise<void> }
 
 /** Demo provider: a local motion clip (push-in on the start frame, crossfade into the end frame). */

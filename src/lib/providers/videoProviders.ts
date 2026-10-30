@@ -241,7 +241,11 @@ export async function runProvider(c: VideoProviderCfg, r: VideoRequest, on: Prog
   const key = providerKey(c.id);
   if (c.type !== "mock" && c.type !== "ltx-comfy" && !key) throw new Error(`${c.name}: no API key saved`);
   switch (c.type) {
-    case "mock": return mockVideo.generate(req);
+    case "mock": {
+      // HyperFrames first (local, cached by spec hash), FFmpeg motion as the fallback
+      if (r.projectId && r.shotId) { try { const { animateShot } = await import("../motion"); const { db } = await import("../db"); const { findShot } = await import("../studio"); const p = db.getProject(r.projectId); if (p) { await animateShot(p, findShot(p, r.shotId), r.durationSec, r.outFile); return; } } catch { /* fall back */ } }
+      return mockVideo.generate(req);
+    }
     case "veo": return veoVideo.generate(req, { key: key!, model: c.model, base: c.baseUrl });
     case "openai": return genericOpenAI(c, key!, req, on);
     case "ltx": return ltxApi(c, key!, req, on);

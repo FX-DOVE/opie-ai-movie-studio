@@ -64,6 +64,8 @@ export async function runAction(id: string, b: Record<string, any>): Promise<Act
       case "voiceAll": result = await R.voiceAll(p); break;
       case "clip": result = await R.queueClips(id, [b.shotId]); break;
       case "clipAll": result = await R.queueClips(id, p.scenes.flatMap((s) => s.shots).filter((s) => s.activeStart && (b.all || !s.clipUrl)).map((s) => s.id)); break;
+      case "composeScenes": { const M = await import("./motion"); result = await M.composeScenes(p, b.shotIds, String(b.note || "")); break; }
+      case "animateShots": result = await R.animateShots(id, b.shotIds); break;
       case "videoEstimate": result = R.videoEstimate(p); break;
       case "render": {
         if (p.render.status === "running") break;

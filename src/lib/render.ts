@@ -12,6 +12,7 @@ import { MAX_WPS, clarity, slowDown, speakable, sttOn, transcribe } from "./dial
 import { record, withStep } from "./usage";
 import { getConfig } from "./config";
 import { aspectSize, type Project, type Shot } from "./types";
+import { animateShot, composeScenes, hfAvailable } from "./motion";
 
 const now = () => new Date().toISOString();
 const shotsOf = (p: Project) => p.scenes.flatMap((s) => s.shots);
@@ -100,7 +101,7 @@ export async function clipShot(p: Project, shotId: string, onJob?: (j: NonNullab
       const est = estimate(prov, sh.durationSec);
       await onJob?.({ state: "running", provider: prov.name, attempt, progress: 2, estUsd: est.usd });
       try {
-        await runProvider(prov, { startFrame: mediaPath(start.url), endFrame: end ? mediaPath(end.url) : undefined, prompt: clipPrompt(p, sh), aspect: p.aspect, durationSec: sh.durationSec, outFile: file }, (pct) => { void onJob?.({ state: "running", provider: prov.name, attempt, progress: Math.round(pct), estUsd: est.usd }); });
+        await runProvider(prov, { startFrame: mediaPath(start.url), endFrame: end ? mediaPath(end.url) : undefined, prompt: clipPrompt(p, sh), aspect: p.aspect, durationSec: sh.durationSec, outFile: file, projectId: p.id, shotId }, (pct) => { void onJob?.({ state: "running", provider: prov.name, attempt, progress: Math.round(pct), estUsd: est.usd }); });
         record("video", prov.type === "mock" ? "Demo" : prov.name, prov.model, undefined, 0, est.usd);
         await db.update(p.id, (x) => { const t = findShot(x, shotId); t.clipUrl = mediaUrl(file); t.clipProvider = prov.name; });
         return { url: mediaUrl(file), provider: prov.id, name: prov.name, attempt, errors };
@@ -152,6 +153,31 @@ export function videoEstimate(p: Project) {
 }
 
 /** Subtitle cues: ≤ 42 characters per line, ≤ 2 lines per cue; long lines split across cues in proportion to their length. */
+/** Word-level timings inside a voiced line from its real MMS audio length: weighted by syllable-ish size, pauses after punctuation. */
+/** Length of a shot in the cut: fitted to its voice line (250 ms lead-in + line + breath), unless locked. */
+export function segDur(sh: Shot, adur: number) {
+  const trimS = sh.trimStart || 0;
+  const base = sh.durationLocked ? Math.max(sh.durationSec, adur + 0.6) : adur ? fitDuration(adur) : (sh.narration || sh.dialogue) ? sh.durationSec : Math.min(sh.durationSec, SILENT_MAX);
+  return +Math.max(2, base - trimS - (sh.trimEnd || 0), adur ? adur + 0.6 : 0).toFixed(2);
+}
+/** animate_shot queue: pre-render HyperFrames clips (one at a time, cached) so the final cut reuses them. */
+export async function animateShots(pid: string, shotIds?: string[]) {
+  const p = db.getProject(pid)!; const out: { shot: number; ok: boolean; engine: string; error?: string }[] = [];
+  const all = shotsOf(p);
+  for (const sh of all.filter((x) => x.activeStart && (!shotIds?.length || shotIds.includes(x.id)))) {
+    const audio = sh.audioUrl && fs.existsSync(mediaPath(sh.audioUrl)) ? mediaPath(sh.audioUrl) : null;
+    const dur = segDur(sh, audio ? await probeDuration(audio) : 0);
+    try { await animateShot(db.getProject(pid)!, sh, dur); out.push({ shot: all.indexOf(sh) + 1, ok: true, engine: "hyperframes" }); }
+    catch (e) { out.push({ shot: all.indexOf(sh) + 1, ok: false, engine: "ffmpeg fallback at render", error: (e as Error).message.slice(0, 120) }); }
+  }
+  return { animated: out.filter((x) => x.ok).length, fallback: out.filter((x) => !x.ok).length, shots: out };
+}
+export function wordTimes(text: string, a: number, b: number) {
+  const ws = text.trim().split(/\s+/).filter(Boolean); if (!ws.length) return [];
+  const wt = ws.map((w) => Math.max(1, (w.toLowerCase().match(/[aeiouy]+/g) || []).length) + (/[,.;:!?]$/.test(w) ? 0.8 : 0));
+  const tot = wt.reduce((x, y) => x + y, 0); let t = a;
+  return ws.map((w, i) => { const d = ((b - a) * wt[i]) / tot; const o = { w: w.replace(/[^\p{L}\p{N}'’-]/gu, ""), a: +t.toFixed(3), b: +(t + d * (/[,.;:!?]$/.test(w) ? 0.75 : 0.95)).toFixed(3) }; t += d; return o; });
+}
 export function cues(text: string, a: number, b: number) {
   const words = text.trim().split(/\s+/); const lines: string[] = []; let cur = "";
   for (const w of words) { if ((cur + " " + w).trim().length > 42 && cur) { lines.push(cur); cur = w; } else cur = (cur + " " + w).trim(); }
@@ -202,8 +228,9 @@ export async function renderProject(projectId: string) {
     const { w, h } = aspectSize(p.aspect, 1280);
     const fps = 25;
     const segs: string[] = [];
-    const subs: string[] = [];
-    let t = 0;
+    const subs: string[] = []; const words: { w: string; a: number; b: number; shot: number }[] = [];
+    let t = 0; let hfUsed = 0; const hfFails: string[] = [];
+    if (await hfAvailable() && !shotsOf(p).some((x) => x.motionSpec)) { await setRender(p.id, { progress: 4, message: "Muse Spark is designing the motion" }); await composeScenes(p).catch(() => null); p = db.getProject(p.id) || p; }
     const list = shotsOf(p);
     for (let i = 0; i < list.length; i++) {
       const sh: Shot = list[i];
@@ -214,13 +241,13 @@ export async function renderProject(projectId: string) {
       const adur = audio ? await probeDuration(audio) : 0;
       const trimS = sh.trimStart || 0;
       // fit each shot to its voice line (unless the user locked a length), so narration covers the cut instead of dead air
-      const base = sh.durationLocked ? Math.max(sh.durationSec, adur + 0.6) : adur ? fitDuration(adur) : (sh.narration || sh.dialogue) ? sh.durationSec : Math.min(sh.durationSec, SILENT_MAX);
-      // the 250 ms lead-in + the whole line + a breath must fit, so one line never runs into the next (no overlapping speech)
-      const dur = +Math.max(2, base - trimS - (sh.trimEnd || 0), adur ? adur + 0.6 : 0).toFixed(2);
+      const dur = segDur(sh, adur);
       const out = path.join(work, `seg${String(i).padStart(3, "0")}.mp4`);
       const vIn: string[] = [];
       let vf: string;
-      if (p.outputType === "video" && sh.clipUrl && fs.existsSync(mediaPath(sh.clipUrl))) {
+      const hf = !(p.outputType === "video" && sh.clipUrl) && start ? await animateShot(p, sh, dur).catch((e) => { hfFails.push(`shot ${i + 1}: ${(e as Error).message.slice(0, 80)}`); return null; }) : null;
+      if (hf) { hfUsed++; vIn.push("-i", hf); vf = `[0:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},fps=${fps},setsar=1,tpad=stop_mode=clone:stop_duration=1,trim=duration=${dur},setpts=PTS-STARTPTS,format=yuv420p[v]`; }
+      else if (p.outputType === "video" && sh.clipUrl && fs.existsSync(mediaPath(sh.clipUrl))) {
         vIn.push("-stream_loop", "-1", "-ss", String(trimS), "-i", mediaPath(sh.clipUrl));
         vf = `[0:v]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},fps=${fps},setsar=1,trim=duration=${dur},setpts=PTS-STARTPTS,format=yuv420p[v]`;
       } else {
@@ -244,6 +271,7 @@ export async function renderProject(projectId: string) {
       await ffmpeg([...vIn, ...aIn, "-filter_complex", `${vf};${af}`, "-map", "[v]", "-map", "[a]", "-t", String(dur), "-r", String(fps), "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-c:a", "aac", "-b:a", "160k", out]);
       segs.push(out);
       const line = sh.narration || sh.dialogue || "";
+      if (line) words.push(...wordTimes(line, t + 0.25, t + 0.25 + (adur || Math.min(dur - 0.3, line.split(/\s+/).length / 2.6))).map((x) => ({ ...x, shot: i + 1 })));
       if (line) for (const c of cues(line, t + 0.25, t + Math.max(1, Math.min(dur - 0.05, adur + 0.35)))) subs.push(`${subs.length + 1}\n${srtTime(c.a)} --> ${srtTime(c.b)}\n${c.text}\n`);
       t += dur;
     }
@@ -272,7 +300,10 @@ export async function renderProject(projectId: string) {
     await ffmpeg([...args, ...(fc ? ["-filter_complex", fc] : []), "-map", vfilter ? "[v]" : "0:v", "-map", amap, ...(subs.length ? ["-map", `${subIdx}:s`, "-c:s", "mov_text", "-metadata:s:s:0", "language=eng"] : []), "-c:v", vfilter ? "libx264" : "copy", ...(vfilter ? ["-preset", "veryfast", "-crf", "21"] : []), "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", final]);
     const srtOut = final.replace(/\.mp4$/, ".srt");
     if (subs.length) { fs.copyFileSync(srt, srtOut); fs.writeFileSync(srtOut.replace(/\.srt$/, ".vtt"), "WEBVTT\n\n" + subs.join("\n").replace(/(\d\d:\d\d:\d\d),(\d\d\d)/g, "$1.$2")); }
-    await setRender(p.id, { srtUrl: subs.length ? mediaUrl(srtOut) : undefined });
+    // word-level captions (timed from the real MMS audio length of each line): sidecar SRT + JSON for karaoke-style players
+    if (words.length) { const wsrt = final.replace(/\.mp4$/, ".words.srt"); fs.writeFileSync(wsrt, words.map((x, k) => `${k + 1}\n${srtTime(x.a)} --> ${srtTime(x.b)}\n${x.w}\n`).join("\n")); fs.writeFileSync(final.replace(/\.mp4$/, ".words.json"), JSON.stringify(words)); }
+    if (hfFails.length) warnings.push(`Motion: ${hfUsed}/${list.length} shots animated with HyperFrames; FFmpeg fallback for ${hfFails.length} (${hfFails.slice(0, 2).join("; ")})`);
+    await setRender(p.id, { srtUrl: subs.length ? mediaUrl(srtOut) : undefined, motion: hfUsed ? `HyperFrames ${hfUsed}/${list.length} shots` : "FFmpeg motion" });
     await setRender(p.id, { progress: 95, message: "Muse is reviewing the cut" });
     const review = await reviewCut(db.getProject(p.id)!, t);
     const speech = (await Promise.all(list.map((s) => s.audioUrl && fs.existsSync(mediaPath(s.audioUrl)) ? probeDuration(mediaPath(s.audioUrl)) : 0))).reduce((a, b) => a + b, 0);
