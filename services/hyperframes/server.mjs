@@ -11,7 +11,7 @@ function render({ dir, out, timeoutSec = 600 }) {
   return new Promise((resolve) => {
     const t0 = Date.now();
     fs.copyFileSync(GSAP, path.join(dir, "gsap.min.js"));
-    const p = spawn("nice", ["-n", "10", "npx", "--no-install", "hyperframes", "render", "--low-memory-mode", "-o", out], { cwd: dir, env: { ...process.env, HYPERFRAMES_SKIP_SKILLS: "1", DO_NOT_TRACK: "1" } });
+    const p = spawn("nice", ["-n", "10", "/srv/node_modules/.bin/hyperframes", "render", "--low-memory-mode", "-o", out], { cwd: dir, env: { ...process.env, HYPERFRAMES_SKIP_SKILLS: "1", DO_NOT_TRACK: "1" } });
     let log = ""; const keep = (d) => { log = (log + d).slice(-4000); };
     p.stdout.on("data", keep); p.stderr.on("data", keep);
     const k = setTimeout(() => p.kill("SIGKILL"), timeoutSec * 1000);
