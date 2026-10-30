@@ -38,7 +38,7 @@ export default function Landing() {
   return (
     <main className="relative overflow-x-hidden bg-[#fff]">
       <PublicNav overlay />
-      <Hero video="/brand/film.mp4" poster="/brand/hero-poster.webp" />
+      <Hero video="/brand/hero-loop.mp4" poster="/brand/hero-poster.webp" />
 
       <section className="py-6"><FilmStrip stills={STILLS} /></section>
 
