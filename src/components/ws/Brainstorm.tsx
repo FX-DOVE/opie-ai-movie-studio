@@ -1,7 +1,7 @@
 "use client";
 import { friendly, ndjson, resumeStream } from "@/lib/net";
 import { useEffect, useRef, useState } from "react";
-import { Check, FileText, Lightbulb, MessageSquareText, NotebookPen, RotateCcw, Send, Sparkles, Square, X } from "lucide-react";
+import { Check, FileText, Lightbulb, MessageSquareText, NotebookPen, RotateCcw, Send, Clapperboard, Square, X } from "lucide-react";
 import type { ChatMsg, Idea, Project } from "@/lib/types";
 import { Spinner } from "../ui";
 import type { Act } from "./common";
@@ -125,14 +125,14 @@ export function Brainstorm({ p, setP, act, toast, open, onScript }: { p: Project
         {shown.length === 0 && !live && (
           <div className="space-y-3">
             <p className="text-sm text-ink-400">Throw out a topic, feeling or half-idea. ReelForge pitches loglines, hooks, beat sheets and characters as cards — pick one and it writes the full script.{research.length ? " Your research notes are included as context." : ""}</p>
-            <div className="flex flex-col gap-1.5">{(STARTERS[p.mode] || STARTERS.drama).map((s) => <button key={s} className="chip justify-start text-left" onClick={() => send(s)}><Sparkles className="h-3 w-3 shrink-0" />{s}</button>)}</div>
+            <div className="flex flex-col gap-1.5">{(STARTERS[p.mode] || STARTERS.drama).map((s) => <button key={s} className="chip justify-start text-left" onClick={() => send(s)}><Clapperboard className="h-3 w-3 shrink-0" />{s}</button>)}</div>
           </div>
         )}
         {shown.map((m, i) => m.kind === "research" ? (
           <div key={i} className="mr-2 space-y-2 rounded-2xl border border-emerald-400/20 bg-emerald-500/[0.06] px-3.5 py-2.5 text-sm leading-relaxed text-ink-300">
             <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-emerald-300"><NotebookPen className="h-3 w-3" />Research from Reel’s computer</p>
             <Md text={m.content} />
-            {i === shown.length - 1 && !live && <button className="chip" onClick={() => send("Using that research, pitch 3 ideas with strong hooks.")}><Sparkles className="h-3 w-3" />Pitch ideas from this research</button>}
+            {i === shown.length - 1 && !live && <button className="chip" onClick={() => send("Using that research, pitch 3 ideas with strong hooks.")}><Clapperboard className="h-3 w-3" />Pitch ideas from this research</button>}
           </div>
         ) : m.kind === "note" ? (
           <p key={i} className="text-center text-[11px] text-emerald-300/80">{m.content}</p>

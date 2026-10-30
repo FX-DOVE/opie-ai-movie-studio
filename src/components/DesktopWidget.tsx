@@ -4,7 +4,7 @@ import { friendly, H } from "@/lib/net";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ModeToggle, RealDesk, useDesk, useInputMode } from "./RealDesk";
 import { HomeScreen, Scaled, SleepScreen, type DeskApp } from "./DeskApps";
-import { ArrowLeft, ArrowRight, Bot, Hand, Maximize2, Minimize2, Minus, Monitor, RotateCw, Smartphone, Square, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, MessageCircle, Hand, Maximize2, Minimize2, Minus, Monitor, RotateCw, Smartphone, Square, X } from "lucide-react";
 
 /** App-wide "computer" widget: the agent's live virtual desktop in a floating window (Grok-style). */
 type Sess = { id: string; status: string; mode: string; control?: boolean; needsUser?: string; screen?: string; pageUrl?: string; goal: string; maxSteps: number; steps: { action: string; kind: string }[] };
@@ -174,9 +174,9 @@ export function DesktopWidget() {
             {last && !controlling && <div className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/80 to-transparent px-3 pb-2 pt-6 text-[11px] text-white/85">{last}</div>}
           </div>
           <div className="flex h-11 shrink-0 items-center gap-2 border-t border-white/[0.06] px-2">
-            {real ? (d.state === "awake" ? <><button className={`h-8 px-3 text-xs ${d.control ? "btn-brand" : "btn-outline"}`} onClick={() => d.take(!d.control)}>{d.control ? <><Bot className="h-3.5 w-3.5" />Done</> : <><Hand className="h-3.5 w-3.5" />Take control</>}</button><ModeToggle mode={mode} setMode={setMode} /></> : <span className="text-[11px] text-ink-500">Reel’s computer is asleep</span>)
+            {real ? (d.state === "awake" ? <><button className={`h-8 px-3 text-xs ${d.control ? "btn-brand" : "btn-outline"}`} onClick={() => d.take(!d.control)}>{d.control ? <><MessageCircle className="h-3.5 w-3.5" />Done</> : <><Hand className="h-3.5 w-3.5" />Take control</>}</button><ModeToggle mode={mode} setMode={setMode} /></> : <span className="text-[11px] text-ink-500">Reel’s computer is asleep</span>)
             : live(s) ? (controlling
-              ? (s?.mode === "manual" ? <span className="text-[11px] text-ink-400">Manual browser — click & type on the screen</span> : <button className="btn-brand h-8 px-3 text-xs" onClick={back}><Bot className="h-3.5 w-3.5" />Hand back to agent</button>)
+              ? (s?.mode === "manual" ? <span className="text-[11px] text-ink-400">Manual browser — click & type on the screen</span> : <button className="btn-brand h-8 px-3 text-xs" onClick={back}><MessageCircle className="h-3.5 w-3.5" />Hand back to agent</button>)
               : <button className={`h-8 px-3 text-xs ${s?.needsUser ? "btn-brand animate-pulse" : "btn-outline"}`} onClick={take}><Hand className="h-3.5 w-3.5" />Take control</button>)
               : <span className="text-[11px] text-ink-500">{s ? `Session ${s.status}` : "Idle"}</span>}
             <span className="ml-auto truncate text-[11px] text-ink-500">{s?.goal}</span>
@@ -221,7 +221,7 @@ export function DesktopWidget() {
         <div className={`absolute inset-x-0 top-0 flex items-center gap-1.5 bg-gradient-to-b from-black/85 via-black/50 to-transparent px-3 pb-6 pt-3 transition-opacity duration-300 ${bar || !img ? "opacity-100" : "pointer-events-none opacity-0"}`}>
           <span className={`h-2 w-2 shrink-0 rounded-full ${running ? "animate-pulse bg-emerald-400" : live(s) ? "bg-amber-400" : "bg-ink-500"}`} />
           <span className="min-w-0 flex-1 truncate text-xs text-white/80">{s?.pageUrl || "ReelForge computer"}</span>
-          {live(s) && (controlling ? (s?.mode !== "manual" && <button className="btn-brand h-8 px-2.5 text-xs" onClick={back}><Bot className="h-3.5 w-3.5" />Hand back</button>)
+          {live(s) && (controlling ? (s?.mode !== "manual" && <button className="btn-brand h-8 px-2.5 text-xs" onClick={back}><MessageCircle className="h-3.5 w-3.5" />Hand back</button>)
             : <button className="btn-outline h-8 border-white/20 px-2.5 text-xs text-white" onClick={take}><Hand className="h-3.5 w-3.5" />Take control</button>)}
           {live(s) && <button className={IB + " text-red-300"} aria-label="Stop agent" title="Stop" onClick={stop}><Square className="h-4 w-4" /></button>}
           <button className={IB + " text-white"} aria-label="Exit fullscreen" title="Exit fullscreen" onClick={exitFs}><Minimize2 className="h-4 w-4" /></button>

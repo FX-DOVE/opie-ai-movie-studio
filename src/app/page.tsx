@@ -1,21 +1,21 @@
 import Link from "next/link";
-import { ArrowRight, ArrowUpRight } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Play } from "lucide-react";
 import { PublicNav, PublicFooter, CtaBand } from "@/components/PublicSite";
 
-export const metadata = { title: "ReelForge Studio — an AI film studio" };
+export const metadata = { title: "ReelForge Studio — from an idea to a finished film" };
 
 const STEPS = [
   ["01", "Develop", "Brainstorm loglines, hooks and beat sheets with the writers’ room agent — or paste your own screenplay."],
   ["02", "Cast & build", "Characters, locations and props are pulled from the script. Lock each one with a reference sheet."],
   ["03", "Board", "A director agent breaks scenes into shots with start and end frames, chained for continuity."],
   ["04", "Supervise", "A vision pass checks every frame against the production bible — faces, wardrobe, props — and fixes drift."],
-  ["05", "Shoot & voice", "Frames become clips through a pluggable video engine; neural voices read every line."],
+  ["05", "Shoot & voice", "Stills come alive with camera moves and crossfades; Meta MMS voices read every line."],
   ["06", "Cut", "Timeline, music and subtitles. Describe the change you want and the editor re-cuts and exports MP4."],
 ];
 const FEATURES = [
   ["Consistent cast", "Reference sheets for every character, location and prop follow each shot, so faces and wardrobe don’t drift."],
   ["Any format", "Live action, 3D animation or anime — 9:16 Shorts and Reels, 16:9 episodes or 2.39:1 drama."],
-  ["Voices & music", "Neural voices read every line, with subtitles and a score laid on the timeline."],
+  ["Voices & music", "Every line is voiced, with subtitles and a score laid on the timeline."],
   ["An agent producer", "Reel runs each department for you, researches references on its own computer and hands you the wheel anytime."],
 ];
 const MODELS = [
@@ -41,18 +41,26 @@ export default function Landing() {
         <div className="absolute inset-0 -z-10 bg-gradient-to-t from-ink-950 via-ink-950/55 to-ink-950/30" />
         <div className="absolute inset-0 -z-10 bg-gradient-to-r from-ink-950/80 via-transparent to-transparent" />
         <div className="mx-auto flex min-h-[88svh] max-w-7xl flex-col justify-end px-5 pb-14 pt-28 sm:px-8 sm:pb-20">
-          <p className="text-xs font-medium uppercase tracking-[0.22em] text-brand-400">An AI film studio</p>
-          <h1 className="font-display mt-4 max-w-3xl text-[44px] leading-[0.98] text-white sm:text-7xl lg:text-[88px]">
+          <h1 className="font-display max-w-3xl text-[44px] leading-[0.98] text-white sm:text-7xl lg:text-[88px]">
             From a single idea <em className="text-brand-400">to a finished film.</em>
           </h1>
           <p className="mt-6 max-w-xl text-pretty text-base leading-relaxed text-white/75 sm:text-lg">
             ReelForge writes, casts, storyboards, keeps every face and costume consistent, voices and cuts — drama, animation, anime or ads, for Shorts, Reels or long-form.
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Link href="/signup" className="btn-brand h-12 px-6 text-base">Get started — free <ArrowRight className="h-4 w-4" /></Link>
-            <Link href="/login" className="btn-outline h-12 bg-black/20 px-6 text-base backdrop-blur">Log in</Link>
+            <Link href="/signup" className="btn-brand h-12 rounded-full px-7 text-base">Start creating <ArrowRight className="h-4 w-4" /></Link>
+            <a href="#film" className="btn-outline h-12 rounded-full bg-black/20 px-7 text-base backdrop-blur"><Play className="h-4 w-4 fill-current" />Watch the film</a>
           </div>
           <p className="mt-10 text-[11px] uppercase tracking-[0.18em] text-white/40">Still generated in ReelForge · “Market Rain”, scene 4</p>
+        </div>
+      </section>
+
+      {/* the film */}
+      <section id="film" className="mx-auto max-w-7xl scroll-mt-20 px-5 pt-20 sm:px-8 sm:pt-28">
+        <h2 className="font-display text-center text-4xl leading-[1.05] sm:text-6xl">Made here. Start to finish.</h2>
+        <p className="mx-auto mt-4 max-w-xl text-center text-ink-300">Written, cast, boarded, voiced and cut in ReelForge.</p>
+        <div className="mt-10 overflow-hidden rounded-[28px] border border-white/[0.06] bg-black shadow-2xl shadow-black/60">
+          <video src="/brand/film.mp4" poster="/brand/still-desert.webp" controls playsInline preload="none" className="aspect-video w-full object-cover" />
         </div>
       </section>
 
@@ -89,8 +97,7 @@ export default function Landing() {
 
       <section id="how" className="scroll-mt-16 border-y border-white/[0.06] bg-ink-900">
         <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-24">
-          <p className="text-xs font-medium uppercase tracking-[0.22em] text-brand-400">How it works</p>
-          <h2 className="font-display mt-3 text-4xl sm:text-5xl">The whole crew, in order.</h2>
+          <h2 className="font-display text-4xl sm:text-5xl">The whole crew, in order.</h2>
           <ol className="mt-12 grid gap-x-10 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
             {STEPS.map(([n, t, d]) => (
               <li key={n} className="border-t border-white/10 pt-5">
@@ -123,15 +130,14 @@ export default function Landing() {
         <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-24">
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
             <div>
-              <p className="text-xs font-medium uppercase tracking-[0.22em] text-brand-400">Built on Meta models</p>
-              <h2 className="font-display mt-3 max-w-xl text-4xl leading-[1.05] sm:text-5xl">Muse Spark runs the crew.</h2>
+              <h2 className="font-display max-w-xl text-4xl leading-[1.05] sm:text-5xl">Built on Meta models.</h2>
             </div>
-            <p className="max-w-sm text-sm leading-relaxed text-ink-300">Meta’s Muse Spark is the reasoning and vision model behind the studio’s departments — one model family, tuned per task.</p>
+            <p className="max-w-sm text-sm leading-relaxed text-ink-300">Muse Spark and Muse Wonder direct and review, Muse Image paints every frame, MMS voices every line. Motion, mixing and subtitles are plain FFmpeg.</p>
           </div>
           <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {MODELS.map(([t, d]) => (
+            {MODELS.map(([t, d], i) => (
               <div key={t} className="rounded-2xl border border-white/[0.07] bg-ink-950/60 p-5">
-                <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-brand-400">Muse Spark</p>
+                <span className="text-sm tabular-nums text-ink-500">0{i + 1}</span>
                 <h3 className="mt-2 font-medium text-white">{t}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-ink-300">{d}</p>
               </div>

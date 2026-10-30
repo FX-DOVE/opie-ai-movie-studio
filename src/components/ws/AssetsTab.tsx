@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { AlertTriangle, ArrowRight, CheckCircle2, ImagePlus, Lock, MapPin, Package, Plus, Sparkles, Trash2, Unlock, Upload, User, Wand2 } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, ImagePlus, Lock, MapPin, Package, Plus, Clapperboard, Trash2, Unlock, Upload, User, PenLine } from "lucide-react";
 import { isApproved, isDraft, type Asset } from "@/lib/types";
 import { Drawer, SourceBadge, Spinner } from "../ui";
 import { active, type TabProps } from "./common";
@@ -47,8 +47,8 @@ export function AssetsTab(props: TabProps & { next: () => void }) {
             {!!live.length && <p className="mt-1 text-xs text-ink-300">{approved}/{live.length} references approved{attention.length ? ` · needs you: ${attention.map((a) => a.name).join(", ")}` : ""}</p>}
           </div>
           <div className="flex flex-wrap gap-2">
-            <button className="btn-outline" disabled={!p.script || busy.has("extractAssets")} onClick={() => act("extractAssets")}>{busy.has("extractAssets") ? <Spinner /> : <Wand2 className="h-4 w-4" />} Extract from script</button>
-            <button className="btn-outline" disabled={(!missing && !live.some((a) => a.activeImage && a.approved === false && a.refState !== "attention")) || busy.has("autocreateAssets")} onClick={async () => { const r = await act("autocreateAssets"); const res = (r as { result?: { advanced?: boolean } } | null)?.result; if (res?.advanced) next(); }}>{busy.has("autocreateAssets") ? <Spinner /> : <Sparkles className="h-4 w-4" />} Autocreate {missing ? `(${missing})` : ""}</button>
+            <button className="btn-outline" disabled={!p.script || busy.has("extractAssets")} onClick={() => act("extractAssets")}>{busy.has("extractAssets") ? <Spinner /> : <PenLine className="h-4 w-4" />} Extract from script</button>
+            <button className="btn-outline" disabled={(!missing && !live.some((a) => a.activeImage && a.approved === false && a.refState !== "attention")) || busy.has("autocreateAssets")} onClick={async () => { const r = await act("autocreateAssets"); const res = (r as { result?: { advanced?: boolean } } | null)?.result; if (res?.advanced) next(); }}>{busy.has("autocreateAssets") ? <Spinner /> : <Clapperboard className="h-4 w-4" />} Autocreate {missing ? `(${missing})` : ""}</button>
             <button className="btn-brand" disabled={!p.assets.length || busy.has("buildStoryboard")} onClick={async () => { const r = await act("buildStoryboard"); if (r?.ok) next(); }}>{busy.has("buildStoryboard") ? <Spinner /> : null} Build storyboard <ArrowRight className="h-4 w-4" /></button>
           </div>
         </div>
@@ -131,7 +131,7 @@ function AssetEditor({ a, p, act, busy, setP, toast, voices, onDeleted }: TabPro
         </div>
       )}
       <div className="grid grid-cols-2 gap-2">
-        <button className="btn-brand h-10" disabled={busy.has(key) || a.locked} onClick={() => act("assetImage", { assetId: a.id }, { busyKey: key })}><Sparkles className="h-4 w-4" />{img ? "Regenerate" : "Create image"}</button>
+        <button className="btn-brand h-10" disabled={busy.has(key) || a.locked} onClick={() => act("assetImage", { assetId: a.id }, { busyKey: key })}><Clapperboard className="h-4 w-4" />{img ? "Regenerate" : "Create image"}</button>
         <label className="btn-outline h-10 cursor-pointer"><Upload className="h-4 w-4" />Upload reference<input type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} /></label>
       </div>
       {img && (
@@ -154,7 +154,7 @@ function AssetEditor({ a, p, act, busy, setP, toast, voices, onDeleted }: TabPro
       )}
       <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
         <div className="mb-2 flex items-center gap-2"><span className="text-sm font-semibold">{a.kind === "prop" ? "Prop bible spec" : a.kind === "character" ? "Character bible spec" : "Location bible spec"}</span>
-          <button className="btn-ghost ml-auto h-7 text-xs" disabled={busy.has("expandSpec") || a.locked} onClick={() => act("expandSpec", { assetId: a.id })}>{busy.has("expandSpec") ? <Spinner /> : <Wand2 className="h-3.5 w-3.5" />}{a.spec ? "Re-expand" : "Expand spec"}</button></div>
+          <button className="btn-ghost ml-auto h-7 text-xs" disabled={busy.has("expandSpec") || a.locked} onClick={() => act("expandSpec", { assetId: a.id })}>{busy.has("expandSpec") ? <Spinner /> : <PenLine className="h-3.5 w-3.5" />}{a.spec ? "Re-expand" : "Expand spec"}</button></div>
         {a.spec ? <SpecView spec={a.spec} /> : <p className="text-xs text-ink-400">The Director expands this into exact type, scale, materials, hex colours and label text before the reference sheet is generated.</p>}
       </div>
       <div className="space-y-4 border-t border-white/[0.06] pt-5">
@@ -171,7 +171,7 @@ function AssetEditor({ a, p, act, busy, setP, toast, voices, onDeleted }: TabPro
           </div>
         )}
         <div className="flex flex-wrap gap-2">
-          <button className="btn-outline" disabled={busy.has("autofillAsset")} onClick={async () => { const r = await act("autofillAsset", { assetId: a.id }); const na = (r as { project?: { assets: Asset[] } })?.project?.assets.find((x) => x.id === a.id); if (na) setF({ ...f, description: na.description, details: na.details }); }}>{busy.has("autofillAsset") ? <Spinner /> : <Wand2 className="h-4 w-4" />} Autofill</button>
+          <button className="btn-outline" disabled={busy.has("autofillAsset")} onClick={async () => { const r = await act("autofillAsset", { assetId: a.id }); const na = (r as { project?: { assets: Asset[] } })?.project?.assets.find((x) => x.id === a.id); if (na) setF({ ...f, description: na.description, details: na.details }); }}>{busy.has("autofillAsset") ? <Spinner /> : <PenLine className="h-4 w-4" />} Autofill</button>
           <button className="btn-ghost ml-auto text-red-300 hover:text-red-200" onClick={async () => { if (confirm("Delete this asset?")) { await act("deleteAsset", { assetId: a.id }); onDeleted(); } }}><Trash2 className="h-4 w-4" />Delete</button>
         </div>
       </div>

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Eye, FileUp, MessageSquareText, PenLine, Send, Wand2 } from "lucide-react";
+import { ArrowRight, Eye, FileUp, MessageSquareText, PenLine, Send, Pencil } from "lucide-react";
 import { classify } from "@/lib/screenplay";
 import { PromptBar } from "./PromptBar";
 import { Brainstorm } from "./Brainstorm";
@@ -92,7 +92,7 @@ export function ScriptTab({ p, act, busy, toast, setP, openBrainstorm, next }: T
           <div className="mx-auto mt-4 flex w-full max-w-4xl flex-wrap items-center justify-between gap-2 text-xs text-ink-400">
             <span>{dirty ? "Saving…" : text ? `Saved · ${text.split(/\s+/).filter(Boolean).length} words · ${lines.filter((l) => l.type === "scene").length} scenes` : "Empty script"}</span>
             <button className="btn-brand" disabled={!text.trim() || busy.has("extractAssets")} onClick={async () => { const r = await act("extractAssets"); if (r?.ok) next(); }}>
-              {busy.has("extractAssets") ? <Spinner /> : <Wand2 className="h-4 w-4" />} Extract cast & assets <ArrowRight className="h-4 w-4" />
+              {busy.has("extractAssets") ? <Spinner /> : <Pencil className="h-4 w-4" />} Extract cast & assets <ArrowRight className="h-4 w-4" />
             </button>
           </div>
         </section>

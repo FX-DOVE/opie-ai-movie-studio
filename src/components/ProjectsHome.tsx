@@ -30,27 +30,27 @@ export function ProjectsHome() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="hidden items-center gap-3 md:flex"><StatusPill /></div>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Your projects</h1>
-          <p className="mt-1 text-sm text-ink-400">Films, anime, documentaries and ads — each with its own cast, storyboard and cut.</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-[-0.02em] sm:text-5xl">Your projects</h1>
+          <p className="mt-2 text-[15px] text-ink-400">Films, anime, documentaries and ads — each with its own cast, storyboard and cut.</p>
         </div>
         <div className="flex gap-2">
           <label className="relative flex-1 sm:w-64 sm:flex-none">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
-            <input className="input h-10 pl-9" placeholder="Search projects" value={q} onChange={(e) => setQ(e.target.value)} />
+            <input className="input h-10 rounded-full pl-9" placeholder="Search projects" value={q} onChange={(e) => setQ(e.target.value)} />
           </label>
-          <button className="btn-brand h-10" onClick={() => setOpen(true)}><Plus className="h-4 w-4" /> <span className="hidden sm:inline">New project</span><span className="sm:hidden">New</span></button>
+          <button className="btn-brand h-10 rounded-full px-5" onClick={() => setOpen(true)}><Plus className="h-4 w-4" /> <span className="hidden sm:inline">New project</span><span className="sm:hidden">New</span></button>
         </div>
       </div>
 
-      <div className="mt-8 grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-        <button onClick={() => setOpen(true)} className="group flex aspect-[4/3] flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-white/15 text-ink-400 transition-colors hover:border-brand-400/60 hover:text-white">
+      <div className="mt-10 grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+        <button onClick={() => setOpen(true)} className="group flex aspect-[4/3] flex-col items-center justify-center gap-3 rounded-[22px] border border-dashed border-white/15 text-ink-400 transition-colors hover:border-brand-400/60 hover:text-white">
           <span className="grid h-12 w-12 place-items-center rounded-full bg-white/[0.05] group-hover:bg-brand-500/20"><Plus className="h-5 w-5" /></span>
           <span className="text-sm font-medium">New project</span>
         </button>
         {rows === null && Array.from({ length: 3 }).map((_, i) => <div key={i} className="shimmer aspect-[4/3] rounded-2xl" />)}
         {list.map((r) => (
           <div key={r.id} className="group relative">
-            <Link href={`/studio/${r.id}`} className="block overflow-hidden rounded-2xl border border-white/[0.07] bg-ink-850 transition hover:border-white/20">
+            <Link href={`/studio/${r.id}`} className="block overflow-hidden rounded-[22px] border border-white/[0.06] bg-ink-850 transition duration-300 hover:-translate-y-0.5 hover:border-white/15 hover:shadow-2xl hover:shadow-black/40">
               <div className="relative aspect-[4/3] bg-ink-800">
                 {r.cover ? <img src={r.cover} alt="" className="absolute inset-0 h-full w-full object-cover" /> : <div className="absolute inset-0 grid place-items-center text-ink-600"><Clapperboard className="h-10 w-10" /></div>}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/0" />

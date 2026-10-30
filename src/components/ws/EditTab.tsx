@@ -1,5 +1,5 @@
 "use client";
-import { ChevronLeft, ChevronRight, Download, Music, RefreshCw, Subtitles, Wand2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Music, RefreshCw, Subtitles, PenLine } from "lucide-react";
 import { useState } from "react";
 import type { Project } from "@/lib/types";
 import { Spinner, Segmented } from "../ui";
@@ -90,7 +90,7 @@ export function EditTab({ p, act, busy, patch }: TabProps & { patch: (b: Partial
               <div className="panel p-5"><span className="label">AI review of the cut</span><p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-300">{r.review}</p></div>
             )}
             <div className="panel p-5">
-              <span className="label flex items-center gap-1.5"><Wand2 className="h-3.5 w-3.5" />AI editor</span>
+              <span className="label flex items-center gap-1.5"><PenLine className="h-3.5 w-3.5" />Describe the change</span>
               <div className="max-h-72 space-y-2 overflow-y-auto">
                 {p.editLog.length === 0 && <p className="text-sm text-ink-400">Ask for changes in plain words: “make shot 2 longer”, “move shot 4 to 1”, “tension music”, “turn off subtitles”, “Nigerian female narrator”. Then re-render.</p>}
                 {p.editLog.map((m, i) => <div key={i} className={`rounded-xl px-3 py-2 text-sm ${m.role === "user" ? "ml-6 bg-brand-500/20" : "mr-4 bg-white/[0.04] text-ink-300"}`}>{m.content}</div>)}

@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { AlertTriangle, ArrowRight, CheckCircle2, Clapperboard, ImagePlus, Mic, Plus, ShieldCheck, Sparkles, Trash2, Upload, Wand2 } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Clapperboard, ImagePlus, Mic, Plus, ShieldCheck, Film, Trash2, Upload, PenLine } from "lucide-react";
 import type { Shot } from "@/lib/types";
 import { Drawer, SourceBadge, Spinner } from "../ui";
 import { PromptBar } from "./PromptBar";
@@ -39,7 +39,7 @@ export function StoryboardTab(props: TabProps & { next: () => void }) {
             </div>
             <div className="flex flex-wrap gap-2">
               <button className="btn-outline" disabled={!p.script || busy.has("buildStoryboard")} onClick={() => { if (!shots.length || confirm("Rebuild the shot list? Existing frames will be replaced.")) act("buildStoryboard"); }}>{busy.has("buildStoryboard") ? <Spinner /> : <Clapperboard className="h-4 w-4" />}{shots.length ? "Rebuild" : "Build shot list"}</button>
-              <button className="btn-outline" disabled={!shots.length || busy.has("autofillFrames")} onClick={() => act("autofillFrames", { withEnd: p.outputType === "video" })}>{busy.has("autofillFrames") ? <Spinner /> : <Sparkles className="h-4 w-4" />} Autofill frames</button>
+              <button className="btn-outline" disabled={!shots.length || busy.has("autofillFrames")} onClick={() => act("autofillFrames", { withEnd: p.outputType === "video" })}>{busy.has("autofillFrames") ? <Spinner /> : <Film className="h-4 w-4" />} Autofill frames</button>
               <button className="btn-brand" disabled={!framed} onClick={next}>Video <ArrowRight className="h-4 w-4" /></button>
             </div>
           </div>
@@ -117,7 +117,7 @@ function ShotEditor({ sh, which, setWhich, p, act, busy, setP, toast, onDeleted 
         <span className="absolute left-3 top-3"><SourceBadge source={img?.source} /></span>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <button className="btn-brand h-10" disabled={busy.has(key)} onClick={() => act("frame", { shotId: sh.id, which }, { busyKey: key })}><Sparkles className="h-4 w-4" />{img ? "Regenerate" : "Create image"}</button>
+        <button className="btn-brand h-10" disabled={busy.has(key)} onClick={() => act("frame", { shotId: sh.id, which }, { busyKey: key })}><Film className="h-4 w-4" />{img ? "Regenerate" : "Create image"}</button>
         <label className="btn-outline h-10 cursor-pointer"><Upload className="h-4 w-4" />Upload<input type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} /></label>
       </div>
       {img && <ChangeBox busy={busy.has(key)} onGo={(v) => act("frame", { shotId: sh.id, which, prompt: v }, { busyKey: key })} />}
@@ -190,7 +190,7 @@ function ChangeBox({ busy, onGo }: { busy: boolean; onGo: (v: string) => void })
   return (
     <div className="flex gap-2">
       <input className="input h-10" placeholder="Tell it what to change… (e.g. make her cry, keep the red gele)" value={v} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} />
-      <button className="btn-outline h-10" disabled={busy || !v.trim()} onClick={go}><Wand2 className="h-4 w-4" />Edit</button>
+      <button className="btn-outline h-10" disabled={busy || !v.trim()} onClick={go}><PenLine className="h-4 w-4" />Edit</button>
     </div>
   );
 }

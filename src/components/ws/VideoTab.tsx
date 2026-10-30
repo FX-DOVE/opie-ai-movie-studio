@@ -1,5 +1,5 @@
 "use client";
-import { ArrowRight, Film, Image as ImageIcon, Mic, Play, Sparkles } from "lucide-react";
+import { ArrowRight, Film, Image as ImageIcon, Mic, Play, Clapperboard } from "lucide-react";
 import type { Project, Shot } from "@/lib/types";
 import { Spinner } from "../ui";
 import { active, ratio, shotsOf, type TabProps } from "./common";
@@ -37,7 +37,7 @@ export function VideoTab({ p, act, busy, voices, patch, next }: TabProps & { pat
             <h2 className="text-xl font-semibold tracking-tight">Video & voice</h2>
             <p className="mt-0.5 text-sm text-ink-400">Turn frames into motion and give every line a voice.</p>
           </div>
-          <button className="btn-brand" disabled={rendering || !shots.length} onClick={async () => { await act("render"); next(); }}>{rendering ? <Spinner /> : <Sparkles className="h-4 w-4" />} Assemble film <ArrowRight className="h-4 w-4" /></button>
+          <button className="btn-brand" disabled={rendering || !shots.length} onClick={async () => { await act("render"); next(); }}>{rendering ? <Spinner /> : <Clapperboard className="h-4 w-4" />} Assemble film <ArrowRight className="h-4 w-4" /></button>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
