@@ -8,7 +8,7 @@ export const MEDIA_DIR = path.join(DATA_DIR, "media");
 const DB_FILE = path.join(DATA_DIR, "db.json");
 
 export interface UserRec { id: string; email: string; name?: string; hash: string; role: "admin" | "user"; createdAt: string }
-interface DBShape { projects: Record<string, Project>; settings: Record<string, string>; users?: Record<string, UserRec>; memory?: Record<string, UserMemory> }
+interface DBShape { projects: Record<string, Project>; settings: Record<string, string>; users?: Record<string, UserRec>; memory?: Record<string, UserMemory>; docs?: Record<string, Record<string, { id: string; ownerId: string; updatedAt?: string }>> }
 
 let cache: DBShape | null = null;
 let chain: Promise<unknown> = Promise.resolve();
@@ -61,6 +61,15 @@ export const db = {
     DELETED.add(id);
     return (chain = chain.then(() => { delete load().projects[id]; persist(); }));
   },
+  /** Generic owner-scoped collections (agents, chats). */
+  listDocs<T extends { id: string; ownerId: string; updatedAt?: string }>(kind: string, ownerId?: string): T[] {
+    const c = (load().docs ||= {})[kind] || {}; return (Object.values(c) as T[]).filter((d) => !ownerId || d.ownerId === ownerId).sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
+  },
+  getDoc<T>(kind: string, id: string): T | undefined { return ((load().docs ||= {})[kind] || {})[id] as T | undefined; },
+  async putDoc<T extends { id: string; ownerId: string; updatedAt?: string }>(kind: string, d: T) {
+    return (chain = chain.then(() => { d.updatedAt = new Date().toISOString(); ((load().docs ||= {})[kind] ||= {})[d.id] = d; persist(); return d; })) as Promise<T>;
+  },
+  async delDoc(kind: string, id: string) { return (chain = chain.then(() => { const c = (load().docs ||= {})[kind]; if (c) delete c[id]; persist(); })); },
   getSetting(k: string) { return load().settings[k]; },
   allSettings() { return { ...load().settings }; },
   async setSetting(k: string, v: string | undefined) {

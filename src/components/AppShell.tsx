@@ -1,12 +1,13 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Clapperboard, Shield, Globe, Settings } from "lucide-react";
+import { Clapperboard, Shield, Globe, Settings, Users } from "lucide-react";
 import { Logo } from "./ui";
 import { useEffect, useState } from "react";
 
 const BASE_NAV = [
   { href: "/dashboard", label: "Projects", icon: Clapperboard },
+  { href: "/agents", label: "Agents", icon: Users },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 const ADMIN_NAV = { href: "/admin", label: "Admin", icon: Shield };

@@ -10,7 +10,8 @@ import { FORMATS } from "./types";
 
 /** ReelForge assistant: a conversational agent with tool calling over the studio's own actions. */
 type Turn = { role: "user" | "assistant" | "tool"; content: string; at: string; tool?: string; ok?: boolean };
-interface Conv { id: string; ownerId?: string; projectId?: string; turns: Turn[]; busy: boolean; interrupts: string[]; abort: boolean; researchId?: string; lastIdeas: Idea[]; autoIds?: string[] }
+export interface Persona { agentId: string; name: string; brief?: string; notes?: string[]; filmStyle?: string; projectId?: string; approval?: "auto" | "key"; others?: string; onNote?: (n: string) => Promise<void> }
+interface Conv { persona?: Persona; id: string; ownerId?: string; projectId?: string; turns: Turn[]; busy: boolean; interrupts: string[]; abort: boolean; researchId?: string; lastIdeas: Idea[]; autoIds?: string[] }
 const g = globalThis as unknown as { __opieConvs?: Map<string, Conv> };
 const convs = (g.__opieConvs ||= new Map<string, Conv>());
 export const getConv = (id: string) => convs.get(id);
@@ -98,11 +99,17 @@ export const TOOLS: Record<string, Tool> = {
     let extra = ""; if (a.use_as_script && c.projectId) { const w = await rewriteAsScript(r); await db.update(c.projectId, (x) => { x.script = w.script; }); extra = `\nWrote an original script into the project (${w.script.split(/\s+/).length} words).`; }
     return `"${r.video.title}" — ${r.video.channel} · ${r.segs.length} caption lines via ${r.via}\nHOOK: ${r.analysis?.hook || "-"}\nBEATS: ${(r.analysis?.beats || []).map((b) => `${b.t || ""} ${b.beat}`).join(" | ")}\nCTA: ${r.analysis?.cta || "-"}\nTRANSCRIPT: ${r.segs.slice(0, 60).map((s) => `[${stamp(s.t)}] ${s.text}`).join(" ").slice(0, 1800)}${extra}`; } },
   project_status: { desc: "{} — current project state", run: async (c) => state(proj(c)) },
+  remember_note: { req: ["note"], desc: '{"note"} — save a short memory note for yourself (preferences, decisions) that you will see in future chats', run: async (c, a) => { if (!c.persona?.onNote) return "no memory here"; await c.persona.onNote(String(a.note).slice(0, 300)); return "saved"; } },
 };
+/** Tools that need the user's go-ahead when an agent is set to "ask at key points". */
+const KEY_STEPS = new Set(["build_storyboard", "generate_frames", "render_video"]);
+const APPROVED = /\b(approve[ds]?|go ahead|yes|continue|proceed|ok(ay)?|do it|looks good)\b/i;
 
 function system(c: Conv) {
   const p = c.projectId ? db.getProject(c.projectId) : undefined;
-  return `You are Reel, the ReelForge Studio assistant, the assistant inside an AI movie studio. You chat naturally AND get things done by calling tools. You can create projects, brainstorm, write scripts, build assets/storyboards, generate frames, fix continuity, voice, render, edit, and browse the web on a virtual desktop.
+  const pe = c.persona;
+  const who = pe ? `You are ${pe.name}, one of the user's production agents inside ReelForge Studio (an AI movie studio).${pe.brief ? ` Your brief: ${pe.brief}.` : ""}${pe.filmStyle ? ` Default film style for new projects: ${pe.filmStyle} (pass it as filmStyle to create_project).` : ""}${pe.others ? ` Other agents in this chat: ${pe.others}. Only do your own part; don't repeat what they said.` : ""}${pe.notes?.length ? `\nYOUR MEMORY NOTES:\n${pe.notes.slice(-12).map((n) => "- " + n).join("\n")}` : ""}${pe.approval === "key" ? "\nThe user wants to approve key steps (storyboard, frames, render): the runtime pauses before them." : ""}\n` : "";
+  return `${who}You are ${pe ? pe.name : "Reel"}, ${pe ? "working as" : "the ReelForge Studio assistant,"} the assistant inside an AI movie studio. You chat naturally AND get things done by calling tools. You can create projects, brainstorm, write scripts, build assets/storyboards, generate frames, fix continuity, voice, render, edit, and browse the web on a virtual desktop.
 
 TOOLS (name args — purpose):
 ${Object.entries(TOOLS).map(([k, t]) => `- ${k} ${t.desc}`).join("\n")}
@@ -122,10 +129,11 @@ export function interrupt(c: Conv, msg: string) {
   return "Noted — I'll factor that in after the current step.";
 }
 
-export function agentStream(o: { convId?: string; message: string; projectId?: string; autoResearch?: boolean; ownerId?: string }): { conv: Conv; stream: ReadableStream<Uint8Array> } {
+export function agentStream(o: { convId?: string; message: string; projectId?: string; autoResearch?: boolean; ownerId?: string; persona?: Persona; history?: { role: "user" | "assistant"; content: string }[] }): { conv: Conv; stream: ReadableStream<Uint8Array> } {
   let c = o.convId ? convs.get(o.convId) : undefined;
   if (c && o.ownerId && c.ownerId && c.ownerId !== o.ownerId && o.ownerId !== "admin") c = undefined; // never resume someone else's conversation
-  if (!c) { c = { id: o.convId && !convs.has(o.convId) ? o.convId : nanoid(10), ownerId: o.ownerId, turns: [], busy: false, interrupts: [], abort: false, lastIdeas: [] }; convs.set(c.id, c); }
+  if (!c) { c = { id: o.convId && !convs.has(o.convId) ? o.convId : nanoid(10), ownerId: o.ownerId, turns: (o.history || []).map((h) => ({ ...h, at: new Date().toISOString() })), busy: false, interrupts: [], abort: false, lastIdeas: [] }; convs.set(c.id, c); }
+  if (o.persona) { c.persona = o.persona; if (!c.projectId && o.persona.projectId) { const lp = db.getProject(o.persona.projectId); if (lp && owns(c, lp)) c.projectId = lp.id; } }
   const op = o.projectId ? db.getProject(o.projectId) : undefined;
   if (op && owns(c, op)) c.projectId = op.id;
   const conv = c; const enc = new TextEncoder();
@@ -187,6 +195,11 @@ export function agentStream(o: { convId?: string; message: string; projectId?: s
         if (steps.length) emit({ type: "plan", steps: steps.map((x) => x.tool) });
         while (steps.length && ran < 14 && !conv.abort) {
           const st = steps.shift()!; const tool = TOOLS[st.tool];
+          if (conv.persona?.approval === "key" && KEY_STEPS.has(st.tool) && !APPROVED.test(o.message) && !conv.turns.some((t) => t.role === "tool" && t.tool === st.tool && t.ok)) {
+            emit({ type: "approval", tool: st.tool });
+            const q = `Ready for the next step: ${st.tool.replace(/_/g, " ")}. Reply “approve” to continue, or tell me what to change.`;
+            emit({ type: "delta", text: q }); emit({ type: "turn_end" }); conv.turns.push({ role: "assistant", content: q, at: now() }); steps = []; ran = 0; break;
+          }
           const tid = nanoid(6); emit({ type: "tool_start", id: tid, name: st.tool, args: st.args || {} });
           const args = await fill(st); emit({ type: "tool_args", id: tid, args });
           let res: string, ok = true;
