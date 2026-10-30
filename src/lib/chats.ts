@@ -6,7 +6,7 @@ import { agentStream, getConv, interrupt, type Persona } from "./agent";
 export interface AgentRec { id: string; ownerId: string; name: string; color: string; brief: string; filmStyle?: string; projectId?: string; approval: "auto" | "key"; notes: string[]; createdAt: string; updatedAt?: string }
 export interface Card { id: string; name: string; ok?: boolean; summary?: string }
 export interface ChatMsg { id: string; role: "user" | "agent" | "info"; agentId?: string; text: string; at: string; cards?: Card[]; projectId?: string }
-export interface ChatRec { id: string; ownerId: string; title: string; agentIds: string[]; msgs: ChatMsg[]; createdAt: string; updatedAt?: string; busy?: boolean }
+export interface ChatRec { id: string; ownerId: string; title: string; color?: string; topic?: string; notes?: string[]; projectIds?: string[]; filmStyle?: string; approval?: "auto" | "key"; agentIds: string[]; msgs: ChatMsg[]; createdAt: string; updatedAt?: string; busy?: boolean }
 
 export const COLORS = ["#0071e3", "#af52de", "#ff9500", "#34c759", "#ff2d55", "#5ac8fa", "#5856d6", "#a2845e"];
 const now = () => new Date().toISOString();
@@ -31,7 +31,8 @@ export const chats = {
   async create(owner: string, b: { title?: string; agentIds?: string[] }) {
     const ids = (b.agentIds || []).filter((x) => agents.get(x, owner));
     const names = ids.map((x) => agents.get(x, owner)!.name);
-    const c: ChatRec = { id: nanoid(10), ownerId: owner, title: String(b.title || (names.length > 1 ? names.join(", ") : names[0] ? `Chat with ${names[0]}` : "New chat")).slice(0, 80), agentIds: ids, msgs: [], createdAt: now() };
+    const n = db.listDocs<ChatRec>("chats", owner).length;
+    const c: ChatRec = { id: nanoid(10), ownerId: owner, title: String(b.title || (names[0] || "New agent")).slice(0, 80), color: COLORS[n % COLORS.length], topic: "", notes: [], projectIds: [], approval: "auto", agentIds: ids, msgs: [], createdAt: now() };
     return db.putDoc("chats", c);
   },
   save: (c: ChatRec) => db.putDoc("chats", c),
@@ -57,6 +58,7 @@ export function responders(c: ChatRec, owner: string, text: string): AgentRec[] 
 }
 
 /** One user message into a chat: persisted, then each responding agent runs in turn (its own conversation, project and memory). */
+/** Each chat IS an agent: its persona comes from the chat itself (name = title, colour, topic, memory, linked projects). */
 export function chatStream(c: ChatRec, owner: string, text: string): ReadableStream<Uint8Array> {
   const enc = new TextEncoder();
   return new ReadableStream<Uint8Array>({
@@ -65,7 +67,8 @@ export function chatStream(c: ChatRec, owner: string, text: string): ReadableStr
       c.msgs.push({ id: nanoid(8), role: "user", text, at: now() }); c.busy = true;
       if (c.title === "New chat" && c.msgs.length === 1) c.title = text.replace(/\s+/g, " ").slice(0, 48);
       await chats.save(c);
-      const who = responders(c, owner, text);
+      const who: AgentRec[] = c.agentIds.length ? responders(c, owner, text) : [{ id: c.id, ownerId: owner, name: c.title, color: c.color || COLORS[0], brief: c.topic || "", filmStyle: c.filmStyle, projectId: c.projectIds?.[c.projectIds.length - 1], approval: c.approval || "auto", notes: c.notes || [], createdAt: c.createdAt }];
+      const self = !c.agentIds.length;
       if (!who.length) { const t = "Add an agent to this chat (or create one) and I'll get to work."; c.msgs.push({ id: nanoid(8), role: "info", text: t, at: now() }); emit({ type: "info", text: t }); }
       for (const a of who) {
         const fresh = c.agentIds.length > 1 ? c.msgs.slice(-10, -1).filter((m) => m.role !== "info") : [];
@@ -74,7 +77,7 @@ export function chatStream(c: ChatRec, owner: string, text: string): ReadableStr
         c.msgs.push(msg); emit({ type: "speaker", agentId: a.id, name: a.name, color: a.color, msgId: msg.id });
         const persona: Persona = { agentId: a.id, name: a.name, brief: a.brief, notes: a.notes, filmStyle: a.filmStyle, projectId: a.projectId, approval: a.approval,
           others: c.agentIds.filter((x) => x !== a.id).map((x) => agents.get(x, owner)?.name).filter(Boolean).join(", "),
-          onNote: async (n) => { const cur = agents.get(a.id, owner); if (cur) { cur.notes = [...cur.notes, n].slice(-40); await db.putDoc("agents", cur); } } };
+          onNote: async (n) => { if (self) { c.notes = [...(c.notes || []), n].slice(-40); await chats.save(c); return; } const cur = agents.get(a.id, owner); if (cur) { cur.notes = [...cur.notes, n].slice(-40); await db.putDoc("agents", cur); } } };
         const history = c.msgs.filter((m) => m !== msg && (m.role === "user" || m.agentId === a.id)).slice(-16, -1).map((m) => ({ role: m.role === "user" ? "user" as const : "assistant" as const, content: m.text }));
         const { stream } = agentStream({ convId: convKey(c.id, a.id), message: transcript + text, ownerId: owner, persona, history, autoResearch: false });
         const rd = stream.getReader(); const dec = new TextDecoder(); let buf = "";
@@ -90,8 +93,8 @@ export function chatStream(c: ChatRec, owner: string, text: string): ReadableStr
             else if (e.type === "turn_end") { if (msg.text && !msg.text.endsWith("\n\n")) msg.text += "\n\n"; }
             else if (e.type === "tool_start") msg.cards!.push({ id: String(e.id), name: String(e.name) });
             else if (e.type === "tool_end") { const k = msg.cards!.find((x) => x.id === e.id); if (k) { k.ok = !!e.ok; k.summary = String(e.summary || "").slice(0, 300); } }
-            else if (e.type === "project") { msg.projectId = String(e.id); if (!a.projectId) { const cur = agents.get(a.id, owner); if (cur) { cur.projectId = msg.projectId; await db.putDoc("agents", cur); } } }
-            else if (e.type === "done" && e.projectId) msg.projectId ||= String(e.projectId);
+            else if (e.type === "project") { msg.projectId = String(e.id); if (self) { c.projectIds = [...new Set([...(c.projectIds || []), msg.projectId])]; } else if (!a.projectId) { const cur = agents.get(a.id, owner); if (cur) { cur.projectId = msg.projectId; await db.putDoc("agents", cur); } } }
+            else if (e.type === "done" && e.projectId) { msg.projectId ||= String(e.projectId); if (self) c.projectIds = [...new Set([...(c.projectIds || []), String(e.projectId)])]; }
             emit({ ...e, agentId: a.id, msgId: msg.id });
             if (Date.now() - lastSave > 4000) { lastSave = Date.now(); await chats.save(c); }
           }
@@ -109,6 +112,6 @@ export function chatStream(c: ChatRec, owner: string, text: string): ReadableStr
 /** Stop button: abort every agent run in the chat. */
 export function stopChat(c: ChatRec) {
   let n = 0;
-  for (const id of c.agentIds) { const v = getConv(convKey(c.id, id)); if (v?.busy) { interrupt(v, "stop"); n++; } else if (v) v.abort = true; }
+  for (const id of c.agentIds.length ? c.agentIds : [c.id]) { const v = getConv(convKey(c.id, id)); if (v?.busy) { interrupt(v, "stop"); n++; } else if (v) v.abort = true; }
   return n;
 }

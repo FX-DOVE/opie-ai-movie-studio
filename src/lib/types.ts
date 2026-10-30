@@ -90,6 +90,8 @@ export interface Project {
   filmStyle?: string;
   /** true once the user picked the film style; otherwise Muse may pick it from the idea/brainstorm */
   filmStyleManual?: boolean;
+  /** how the story is voiced: character dialogue or a narrator voice-over (agent/user choice) */
+  voiceMode?: "dialogue" | "narration";
   /** "<id>@<version>" of the genre skill that last shaped the script/storyboard */
   genreSkill?: string;
   outputType: OutputType;
